@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "bun run --cwd packages/contracts typecheck && bun run --cwd packages/mcp-shared typecheck",
+    "typecheck": "bun run --cwd packages/contracts typecheck && bun run --cwd packages/mcp-shared typecheck && bun run --cwd packages/mcp typecheck",
     "test": "bun test"
   },
   "devDependencies": {
