@@ -1,0 +1,23 @@
+{
+  "name": "@nova/mcp-shared",
+  "version": "0.1.0",
+  "description": "Cross-cutting helpers for llamactl-family MCP servers — audit sink, content envelopes, dry-run scaffolding.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "^1.3.12",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
+}

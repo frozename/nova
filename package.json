@@ -1,25 +1,19 @@
 {
-  "name": "@nova/contracts",
+  "name": "nova",
   "version": "0.1.0",
-  "description": "Canonical AI-provider contracts (chat, embeddings, models, health) shared by llamactl, sirius-gateway, and embersynth.",
+  "private": true,
+  "description": "Shared infrastructure for the llamactl family — canonical AI-provider contracts and cross-cutting helpers for MCP servers. Monorepo housing @nova/contracts + @nova/mcp-shared.",
   "type": "module",
-  "main": "./src/index.ts",
-  "exports": {
-    ".": "./src/index.ts"
-  },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun run --cwd packages/contracts typecheck && bun run --cwd packages/mcp-shared typecheck",
     "test": "bun test"
-  },
-  "dependencies": {
-    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/bun": "^1.3.12",
+    "@types/node": "^25.6.0",
     "typescript": "^5.9.3"
-  },
-  "files": [
-    "src",
-    "README.md"
-  ]
+  }
 }
