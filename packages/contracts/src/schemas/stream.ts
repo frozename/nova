@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FinishReasonSchema, ToolCallSchema } from './chat.js';
+import { FinishReasonSchema, ToolCallDeltaSchema, ToolCallSchema } from './chat.js';
 
 /**
  * Unified streaming events. Adapters convert their provider's native
@@ -12,7 +12,14 @@ import { FinishReasonSchema, ToolCallSchema } from './chat.js';
 export const StreamDeltaSchema = z.object({
   role: z.enum(['assistant', 'tool']).optional(),
   content: z.string().nullable().optional(),
-  tool_calls: z.array(ToolCallSchema).optional(),
+  /**
+   * Streaming tool-call deltas — OpenAI emits partial tool_call frames
+   * (an `index` + incremental id / function fields). Consumers group
+   * by index and concatenate `function.arguments` to reconstruct the
+   * complete ToolCall. Full ToolCallSchema shapes are tolerated too so
+   * adapters that buffer-and-emit stay valid.
+   */
+  tool_calls: z.array(z.union([ToolCallDeltaSchema, ToolCallSchema])).optional(),
 });
 
 export const StreamChoiceSchema = z.object({

@@ -62,6 +62,30 @@ export const ToolCallSchema = z.object({
 });
 export type ToolCall = z.infer<typeof ToolCallSchema>;
 
+/**
+ * Partial tool-call payload as it appears on the streaming wire.
+ * OpenAI emits these in `choices[].delta.tool_calls` — each frame
+ * carries an `index` pointing at which tool-call slot it belongs to
+ * plus any incremental fields (id on the first frame,
+ * function.name on the first frame that sets it, then a series of
+ * function.arguments chunks that concatenate into the final JSON).
+ *
+ * Consumers reconstruct full ToolCall values by grouping deltas by
+ * index and concatenating the arguments strings in order.
+ */
+export const ToolCallDeltaSchema = z.object({
+  index: z.number().int().nonnegative(),
+  id: z.string().optional(),
+  type: z.literal('function').optional(),
+  function: z
+    .object({
+      name: z.string().optional(),
+      arguments: z.string().optional(),
+    })
+    .optional(),
+});
+export type ToolCallDelta = z.infer<typeof ToolCallDeltaSchema>;
+
 export const ChatMessageSchema = z.object({
   role: RoleSchema,
   content: z.union([z.string(), z.array(ContentBlockSchema), z.null()]),

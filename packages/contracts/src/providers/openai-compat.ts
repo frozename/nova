@@ -33,6 +33,14 @@ export interface OpenAICompatOptions {
   fetch?: typeof globalThis.fetch;
   /** Extra headers merged into every request (e.g. `OpenAI-Organization`). */
   extraHeaders?: Record<string, string>;
+  /**
+   * Endpoint to probe in `healthCheck`. Defaults to `/models` (OpenAI
+   * convention — a 200 means the API key + service are alive).
+   * Self-hosted gateways often expose a cheaper `/health` that doesn't
+   * require auth; point here for those cases. Must include the leading
+   * slash; combined with `baseUrl` verbatim.
+   */
+  healthPath?: string;
 }
 
 function trimTrailingSlash(url: string): string {
@@ -136,7 +144,16 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
               created?: number;
               choices?: Array<{
                 index?: number;
-                delta?: { role?: 'assistant' | 'tool'; content?: string | null; tool_calls?: unknown };
+                delta?: {
+                  role?: 'assistant' | 'tool';
+                  content?: string | null;
+                  tool_calls?: Array<{
+                    index: number;
+                    id?: string;
+                    type?: 'function';
+                    function?: { name?: string; arguments?: string };
+                  }>;
+                };
                 finish_reason?: string | null;
               }>;
             };
@@ -160,6 +177,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
                   delta: {
                     ...(c.delta?.role ? { role: c.delta.role } : {}),
                     ...(c.delta?.content !== undefined ? { content: c.delta.content } : {}),
+                    ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
                   },
                   ...(c.finish_reason !== undefined
                     ? { finish_reason: c.finish_reason as UnifiedStreamEvent extends { type: 'done'; finish_reason: infer F } ? F : never }
@@ -216,8 +234,9 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
 
     async healthCheck(): Promise<ProviderHealth> {
       const startedAt = Date.now();
+      const probePath = opts.healthPath ?? '/models';
       try {
-        const res = await call('/models', { method: 'GET' });
+        const res = await call(probePath, { method: 'GET' });
         const latencyMs = Date.now() - startedAt;
         if (!res.ok) {
           return {

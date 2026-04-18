@@ -27,25 +27,44 @@ beforeAll(() => {
         });
       }
       if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
-        const body = (await req.json()) as { stream?: boolean; model: string };
+        const body = (await req.json()) as { stream?: boolean; model: string; tools?: unknown[] };
         if (body.stream) {
+          const toolCallRun = Array.isArray(body.tools) && body.tools.length > 0;
           const stream = new ReadableStream({
             start(controller) {
               const enc = new TextEncoder();
-              controller.enqueue(
-                enc.encode(
-                  'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"' +
-                    body.model +
-                    '","choices":[{"index":0,"delta":{"role":"assistant","content":"hel"}}]}\n\n',
-                ),
-              );
-              controller.enqueue(
-                enc.encode(
-                  'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"' +
-                    body.model +
-                    '","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}\n\n',
-                ),
-              );
+              if (toolCallRun) {
+                // Emit two partial tool_call deltas + a finish frame.
+                controller.enqueue(
+                  enc.encode(
+                    'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"' +
+                      body.model +
+                      '","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"search","arguments":"{\\"q\\":\\""}}]}}]}\n\n',
+                  ),
+                );
+                controller.enqueue(
+                  enc.encode(
+                    'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"' +
+                      body.model +
+                      '","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"hi\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+                  ),
+                );
+              } else {
+                controller.enqueue(
+                  enc.encode(
+                    'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"' +
+                      body.model +
+                      '","choices":[{"index":0,"delta":{"role":"assistant","content":"hel"}}]}\n\n',
+                  ),
+                );
+                controller.enqueue(
+                  enc.encode(
+                    'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"' +
+                      body.model +
+                      '","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}\n\n',
+                  ),
+                );
+              }
               controller.enqueue(enc.encode('data: [DONE]\n\n'));
               controller.close();
             },
@@ -69,6 +88,9 @@ beforeAll(() => {
           ],
           usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
         });
+      }
+      if (url.pathname === '/health' && req.method === 'GET') {
+        return new Response('ok', { status: 200 });
       }
       if (url.pathname === '/v1/embeddings' && req.method === 'POST') {
         const body = (await req.json()) as { model: string; input: string };
@@ -167,5 +189,65 @@ describe('openai-compat provider', () => {
     const h = await bad.healthCheck?.();
     expect(h?.state).toBe('unhealthy');
     expect(h?.error).toBeTruthy();
+  });
+
+  test('healthCheck honors healthPath for self-hosted /health endpoints', async () => {
+    const p = createOpenAICompatProvider({
+      name: 'local',
+      // Root baseUrl — /health sits outside /v1 on self-hosted gateways.
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}`,
+      apiKey: 'x',
+      healthPath: '/health',
+    });
+    const h = await p.healthCheck?.();
+    expect(h?.state).toBe('healthy');
+  });
+
+  test('streamResponse preserves tool_call deltas', async () => {
+    const p = makeProvider();
+    const events: unknown[] = [];
+    for await (const ev of p.streamResponse?.({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'call the search tool' }],
+      tools: [
+        {
+          type: 'function',
+          function: { name: 'search', description: 'search the web', parameters: {} },
+        },
+      ],
+    }) ?? []) {
+      events.push(ev);
+    }
+    const chunks = events.filter(
+      (e): e is {
+        type: 'chunk';
+        chunk: {
+          choices: Array<{
+            delta: {
+              tool_calls?: Array<{
+                index: number;
+                id?: string;
+                function?: { name?: string; arguments?: string };
+              }>;
+            };
+          }>;
+        };
+      } => (e as { type?: string }).type === 'chunk',
+    );
+    // Every chunk with tool_calls preserves the `index` field.
+    const allToolCallFrames = chunks.flatMap(
+      (c) => c.chunk.choices[0]?.delta.tool_calls ?? [],
+    );
+    expect(allToolCallFrames.length).toBeGreaterThanOrEqual(2);
+    // First frame carries the id + name, subsequent frames carry arguments.
+    expect(allToolCallFrames[0]?.id).toBe('call_1');
+    expect(allToolCallFrames[0]?.function?.name).toBe('search');
+    const joinedArgs = allToolCallFrames
+      .map((f) => f.function?.arguments ?? '')
+      .join('');
+    expect(joinedArgs).toContain('hi');
+    const lastEvent = events[events.length - 1] as { type: string; finish_reason?: string };
+    expect(lastEvent.type).toBe('done');
+    expect(lastEvent.finish_reason).toBe('tool_calls');
   });
 });
