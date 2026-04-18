@@ -116,6 +116,12 @@ export const UnifiedAiRequestSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().min(0).max(1).optional(),
   max_tokens: z.number().int().positive().optional(),
+  /** Standard OpenAI sampler knobs. Range follows the OpenAI docs
+   *  (-2.0 .. 2.0). Adapters for providers that expose them natively
+   *  (OpenAI, Groq, Together, llama.cpp) pass them through; others
+   *  ignore. */
+  frequency_penalty: z.number().min(-2).max(2).optional(),
+  presence_penalty: z.number().min(-2).max(2).optional(),
   stop: z.union([z.string(), z.array(z.string())]).optional(),
   stream: z.boolean().optional(),
   tools: z.array(ToolSchema).optional(),
