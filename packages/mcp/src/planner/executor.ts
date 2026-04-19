@@ -59,20 +59,26 @@ export interface PlannerExecutor {
 export const stubPlannerExecutor: PlannerExecutor = {
   name: 'stub',
   async generate(input) {
+    // Pick a tool from the filtered catalog so the plan survives
+    // the allowlist post-validation gate in `runPlanner`. Empty
+    // catalog → fall back to `nova.ops.overview`; `runPlanner` will
+    // then reject with `disallowed-tool`, which is the right
+    // fail-closed behaviour when nothing is allowed.
+    const toolName = input.tools[0]?.name ?? 'nova.ops.overview';
     return {
       ok: true,
       rawPlan: {
         steps: [
           {
-            tool: 'nova.ops.overview',
+            tool: toolName,
             args: {},
             annotation:
-              'stub-executor default: real model not bound yet — reading fleet state so the operator can refine the goal',
+              'stub-executor default: real model not bound yet — invoking a read tool from the allowlisted catalog so the operator can refine the goal',
           },
         ],
         reasoning:
-          `stub planner acknowledging goal; returning a single read-only overview call. ` +
-          `Real LLM wiring lands in N.4.3. (${input.tools.length} tool${input.tools.length === 1 ? '' : 's'} in the allowlist)`,
+          `stub planner acknowledging goal; returning a single ${toolName} call. ` +
+          `Real LLM wiring uses @nova/mcp's createLlmExecutor. (${input.tools.length} tool${input.tools.length === 1 ? '' : 's'} in the allowlist)`,
         requiresConfirmation: false,
       },
       trace: {
@@ -101,10 +107,18 @@ export type RunPlannerResult =
     }
   | {
       ok: false;
-      reason: 'executor-failed' | 'plan-shape-invalid' | 'empty-goal';
+      reason:
+        | 'executor-failed'
+        | 'plan-shape-invalid'
+        | 'empty-goal'
+        | 'disallowed-tool';
       message: string;
       executor?: string;
       rawPlan?: unknown;
+      /** Populated when `reason === 'disallowed-tool'` — the tool
+       *  names the model emitted that are NOT in the allowlisted
+       *  catalog. */
+      disallowedTools?: string[];
       trace?: Record<string, unknown>;
     };
 
@@ -150,6 +164,26 @@ export async function runPlanner(opts: RunPlannerOptions): Promise<RunPlannerRes
       message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
       executor: executor.name,
       rawPlan: exec.rawPlan,
+      trace: exec.trace,
+    };
+  }
+  // Safety gate: every step's tool MUST be in the filtered allowlist.
+  // Closes the prompt-injection route where a malicious model emits
+  // a destructive tool the catalog hid. Empty catalog = every tool
+  // is disallowed, which is the right behaviour (fail closed).
+  const allowed = new Set(filtered.map((t) => t.name));
+  const disallowed: string[] = [];
+  for (const step of parsed.data.steps) {
+    if (!allowed.has(step.tool)) disallowed.push(step.tool);
+  }
+  if (disallowed.length > 0) {
+    return {
+      ok: false,
+      reason: 'disallowed-tool',
+      message: `plan references tool(s) outside the allowlisted catalog: ${[...new Set(disallowed)].join(', ')}`,
+      executor: executor.name,
+      rawPlan: exec.rawPlan,
+      disallowedTools: [...new Set(disallowed)],
       trace: exec.trace,
     };
   }

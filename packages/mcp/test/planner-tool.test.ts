@@ -117,9 +117,10 @@ describe('nova.operator.plan — MCP tool surface', () => {
     };
     expect(parsed.ok).toBe(true);
     expect(parsed.executor).toBe('stub');
-    // stub returns nova.ops.overview regardless of goal
+    // Stub now picks the first tool from the allowlisted catalog so
+    // its plan survives the post-validation allowlist gate.
     expect(parsed.plan.steps).toHaveLength(1);
-    expect(parsed.plan.steps[0]!.tool).toBe('nova.ops.overview');
+    expect(parsed.toolsAvailable).toContain(parsed.plan.steps[0]!.tool);
     expect(parsed.plan.steps[0]!.annotation.length).toBeGreaterThan(0);
     expect(parsed.plan.reasoning.length).toBeGreaterThan(0);
   });
@@ -282,16 +283,30 @@ describe('runPlanner — pure composition', () => {
     expect(called).toBe(0);
   });
 
-  test('stub executor is the default when no executor is supplied', async () => {
+  test('stub executor is the default when no executor is supplied (empty tools = fail closed)', async () => {
+    // Empty tools → allowlist filter produces an empty catalog →
+    // stub emits a pseudo-tool → post-validation gate rejects.
     const result = await runPlanner({
       goal: 'something',
       context: '',
       tools: [],
     });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('disallowed-tool');
+    expect(result.executor).toBe('stub');
+  });
+
+  test('stub executor with a non-empty allowlisted catalog produces a passing plan', async () => {
+    const result = await runPlanner({
+      goal: 'list',
+      context: '',
+      tools: sampleTools,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.executor).toBe('stub');
-    expect(result.plan.steps).toHaveLength(1);
+    expect(sampleTools.map((t) => t.name)).toContain(result.plan.steps[0]!.tool);
   });
 
   test('stub executor exported via public API — operators can re-use', async () => {
