@@ -136,6 +136,107 @@ commit without a good reason — agents should batch.
   model binding into `@nova/mcp`; consumers pass executors at
   construction time via `buildNovaMcpServer({ plannerExecutor })`.
 
+### Facade config (`~/.llamactl/nova-mcp.yaml`)
+
+`@nova/mcp` is a unified facade over the three downstream servers
+(`@llamactl/mcp`, `@sirius/mcp`, `@embersynth/mcp`). The facade reads
+a YAML config at `~/.llamactl/nova-mcp.yaml` (overridable via
+`NOVA_MCP_CONFIG`) that declares each downstream's transport.
+`${VAR}` leaves are interpolated from `process.env` at load time;
+unset vars keep the literal `${VAR}` placeholder so the operator sees
+the breadcrumb. Missing file → one stderr warning, facade still boots
+with its native `nova.*` tools. Malformed YAML or Zod validation
+failure throws at boot.
+
+Copy-pasteable example:
+
+```yaml
+version: 1
+downstreams:
+  - name: llamactl
+    transport: stdio
+    command: llamactl-mcp
+    args: []
+    env:
+      LLAMACTL_MCP_TOKEN: ${LLAMACTL_MCP_TOKEN}
+  - name: sirius
+    transport: http
+    url: http://127.0.0.1:4401/mcp
+    token: ${SIRIUS_MCP_TOKEN}
+  - name: embersynth
+    transport: stdio
+    command: embersynth-mcp
+    args: []
+    env:
+      EMBERSYNTH_CONFIG: /path/to/embersynth.yaml
+```
+
+Schema source of truth: `packages/mcp/src/facade/config.ts`
+(`NovaMcpConfigV1`, `DownstreamSpec`). `stdio` carries
+`{command, args, env}`; `http` carries `{url, token?}` and is wired to
+`StreamableHTTPClientTransport` with a bearer-auth `fetch` wrapper
+(`packages/mcp/src/facade/auth.ts::createBearerAuth`).
+
+### Native tools
+
+Five tools live on the facade itself, regardless of downstream
+availability:
+
+- `nova.ops.overview` — reads the three operator YAMLs llamactl
+  authors (kubeconfig, sirius-providers, embersynth) and returns a
+  unified snapshot of agents + gateways + providers + profiles +
+  synthetic models.
+- `nova.ops.healthcheck` — probes each cloud-bound node's endpoint
+  and reports per-node reachability; fails-soft so one flaky URL
+  doesn't poison the report.
+- `nova.ops.cost.snapshot` — rolls up usage + pricing into a cost
+  report (via `@nova/mcp-shared::readUsage`/`loadPricing`).
+- `nova.operator.plan` — natural-language goal → JSON plan of MCP
+  tool calls; stub + LLM executor modes, injectable via
+  `buildNovaMcpServer({ plannerExecutor })`.
+- `nova.models.list` — aggregates each reachable downstream's model
+  catalog (`llamactl.catalog.list`, `sirius.models.list`,
+  `embersynth.synthetic.list`) in parallel, merges with a fixed
+  priority (`llamactl` → `sirius` → `embersynth`), dedupes by `id`
+  (first wins, later occurrences append to `alsoAvailableIn`), and
+  tags each entry with its `provenance`. Partial failures surface
+  under `partial: {failed, errors}`; the facade still returns what
+  it could collect.
+
+### Passthrough layer
+
+Every tool from a configured downstream becomes callable at the
+facade under its original, fully-qualified name. No renaming — an
+`embersynth.nodes.inspect` tool stays `embersynth.nodes.inspect` on
+the facade. Boot sequence:
+
+1. `loadConfig()` reads the YAML.
+2. `bootAll(config)` (`Promise.allSettled`) opens an MCP `Client`
+   per downstream. Failed downstreams log to stderr and are omitted;
+   the facade boots partial.
+3. `mountProxyTools(server, downstreams)` calls `client.listTools()`
+   on each and registers a 1:1 proxy handler on the upstream server.
+   Collisions → first wins, stderr warning.
+
+Snapshot is taken **at boot only** — no hot reload. If a downstream
+restarts, the facade's proxy handlers call through a dead client and
+surface the error; the operator restarts the facade to pick up new
+tools. Reconnect / live-refresh is a future slice, not a bug.
+
+### What to avoid (facade-specific)
+
+- Dynamic re-discovery of downstream tools at call time. Boot-time
+  snapshot is the contract; clients should not observe surface
+  changes without a restart.
+- Renaming proxied tools (stripping the `llamactl.` / `sirius.` /
+  `embersynth.` prefix). Namespace preservation is load-bearing —
+  operators and agents reason about provenance by prefix.
+- Caching proxied responses. Every call passes through.
+- `SSEClientTransport` — deprecated in SDK 1.29.0. Use
+  `StreamableHTTPClientTransport` for HTTP downstreams.
+- `server.setRequestHandler(...)` — old low-level API. Always
+  `server.registerTool(...)`.
+
 ## What to avoid
 
 - Importing from `@llamactl/*`, `@sirius/*`, or `@embersynth/*` —
