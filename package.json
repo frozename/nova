@@ -1,7 +1,6 @@
 {
   "name": "nova",
   "version": "0.1.0",
-  "private": true,
   "description": "AI provider SDK + MCP server scaffolding. Canonical contracts (chat, embeddings, models, stream, usage), OpenAI-compat adapter factory, and cross-cutting helpers for MCP servers. Monorepo housing @nova/contracts + @nova/mcp-shared + @nova/mcp.",
   "license": "MIT",
   "type": "module",
