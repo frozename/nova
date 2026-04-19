@@ -7,6 +7,29 @@ import type {
   UnifiedEmbeddingResponse,
 } from '../schemas/embeddings.js';
 import type { UnifiedStreamEvent } from '../schemas/stream.js';
+import type { UsageKind } from '../schemas/usage.js';
+
+/**
+ * Callback fired after a successful chat or embedding round-trip
+ * with the provider's reported token counts. Consumers use this to
+ * append a UsageRecord to their JSONL sink (llamactl's
+ * @nova/mcp-shared.appendUsageBackground) without the adapter
+ * needing to know what storage the consumer uses.
+ *
+ * The record is minimal on purpose — the adapter has no opinion on
+ * request_id, route, or user tags. Callers enrich before writing.
+ */
+export interface OpenAICompatUsageSnapshot {
+  provider: string;
+  model: string;
+  kind: UsageKind;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  latency_ms: number;
+}
+
+export type OpenAICompatOnUsage = (snapshot: OpenAICompatUsageSnapshot) => void;
 
 /**
  * OpenAI-compatible provider adapter. Covers every upstream that
@@ -41,6 +64,19 @@ export interface OpenAICompatOptions {
    * slash; combined with `baseUrl` verbatim.
    */
   healthPath?: string;
+  /**
+   * Optional callback fired after each successful chat / embedding
+   * call. Lets consumers (llamactl, embersynth) append a usage
+   * record to their JSONL sink without the adapter caring about
+   * storage. Exceptions thrown from the callback are swallowed so a
+   * misbehaving logger can't bleed into the response path.
+   *
+   * For streaming, fires when the final `stream: true` SSE frame
+   * carries a `usage` block (operators must pass
+   * `stream_options: { include_usage: true }` to get one from
+   * OpenAI-style backends). Absent usage → callback not fired.
+   */
+  onUsage?: OpenAICompatOnUsage;
 }
 
 function trimTrailingSlash(url: string): string {
@@ -63,6 +99,16 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
     });
   }
 
+  function fireUsage(snapshot: OpenAICompatUsageSnapshot): void {
+    if (!opts.onUsage) return;
+    try {
+      opts.onUsage(snapshot);
+    } catch {
+      // Swallow — usage logging is fire-and-forget; the response
+      // path must never fail because a sink errored.
+    }
+  }
+
   return {
     name: opts.name,
     displayName: opts.displayName ?? opts.name,
@@ -81,9 +127,21 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         throw new Error(`${opts.name} ${res.status}: ${text.slice(0, 500)}`);
       }
       const raw = (await res.json()) as UnifiedAiResponse;
+      const latencyMs = Date.now() - startedAt;
+      if (raw.usage) {
+        fireUsage({
+          provider: opts.name,
+          model: raw.model ?? request.model,
+          kind: 'chat',
+          prompt_tokens: raw.usage.prompt_tokens,
+          completion_tokens: raw.usage.completion_tokens,
+          total_tokens: raw.usage.total_tokens,
+          latency_ms: latencyMs,
+        });
+      }
       return {
         ...raw,
-        latencyMs: Date.now() - startedAt,
+        latencyMs,
         provider: opts.name,
       };
     },
@@ -117,8 +175,10 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      const startedAt = Date.now();
       let buffer = '';
       let lastFinish: UnifiedStreamEvent = { type: 'done', finish_reason: 'stop' };
+      let lastModel = request.model;
       while (true) {
         if (signal?.aborted) break;
         const { value, done } = await reader.read();
@@ -156,7 +216,28 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
                 };
                 finish_reason?: string | null;
               }>;
+              usage?: {
+                prompt_tokens?: number;
+                completion_tokens?: number;
+                total_tokens?: number;
+              };
             };
+            if (chunk.model) lastModel = chunk.model;
+            // Usage frame — OpenAI emits this as the penultimate
+            // chunk when the client passes `stream_options:
+            // { include_usage: true }`. Fire onUsage + fall through
+            // (there may be a trailing [DONE] after).
+            if (chunk.usage) {
+              fireUsage({
+                provider: opts.name,
+                model: lastModel,
+                kind: 'chat',
+                prompt_tokens: chunk.usage.prompt_tokens ?? 0,
+                completion_tokens: chunk.usage.completion_tokens ?? 0,
+                total_tokens: chunk.usage.total_tokens ?? 0,
+                latency_ms: Date.now() - startedAt,
+              });
+            }
             if (!chunk.choices) continue;
             const finish = chunk.choices[0]?.finish_reason;
             if (finish) {
@@ -207,10 +288,24 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         const text = await res.text().catch(() => '');
         throw new Error(`${opts.name} ${res.status}: ${text.slice(0, 500)}`);
       }
-      const raw = (await res.json()) as UnifiedEmbeddingResponse;
+      const raw = (await res.json()) as UnifiedEmbeddingResponse & {
+        usage?: { prompt_tokens?: number; total_tokens?: number };
+      };
+      const latencyMs = Date.now() - startedAt;
+      if (raw.usage) {
+        fireUsage({
+          provider: opts.name,
+          model: raw.model ?? request.model,
+          kind: 'embedding',
+          prompt_tokens: raw.usage.prompt_tokens ?? 0,
+          completion_tokens: 0,
+          total_tokens: raw.usage.total_tokens ?? raw.usage.prompt_tokens ?? 0,
+          latency_ms: latencyMs,
+        });
+      }
       return {
         ...raw,
-        latencyMs: Date.now() - startedAt,
+        latencyMs,
         provider: opts.name,
       };
     },

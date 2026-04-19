@@ -27,7 +27,12 @@ beforeAll(() => {
         });
       }
       if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
-        const body = (await req.json()) as { stream?: boolean; model: string; tools?: unknown[] };
+        const body = (await req.json()) as {
+          stream?: boolean;
+          model: string;
+          tools?: unknown[];
+          stream_options?: { include_usage?: boolean };
+        };
         if (body.stream) {
           const toolCallRun = Array.isArray(body.tools) && body.tools.length > 0;
           const stream = new ReadableStream({
@@ -62,6 +67,15 @@ beforeAll(() => {
                     'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"' +
                       body.model +
                       '","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}\n\n',
+                  ),
+                );
+              }
+              if (body.stream_options?.include_usage) {
+                controller.enqueue(
+                  enc.encode(
+                    'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"' +
+                      body.model +
+                      '","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}\n\n',
                   ),
                 );
               }
@@ -249,5 +263,146 @@ describe('openai-compat provider', () => {
     const lastEvent = events[events.length - 1] as { type: string; finish_reason?: string };
     expect(lastEvent.type).toBe('done');
     expect(lastEvent.finish_reason).toBe('tool_calls');
+  });
+});
+
+describe('openai-compat provider — onUsage callback', () => {
+  test('fires on non-streaming chat with provider + model + token counts', async () => {
+    const snapshots: Array<Record<string, unknown>> = [];
+    const p = createOpenAICompatProvider({
+      name: 'stub',
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      apiKey: 'sk-test',
+      onUsage: (s) => { snapshots.push({ ...s }); },
+    });
+    await p.createResponse({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]!.provider).toBe('stub');
+    expect(snapshots[0]!.model).toBe('gpt-4o-mini');
+    expect(snapshots[0]!.kind).toBe('chat');
+    expect(snapshots[0]!.prompt_tokens).toBe(2);
+    expect(snapshots[0]!.completion_tokens).toBe(1);
+    expect(snapshots[0]!.total_tokens).toBe(3);
+    expect(typeof snapshots[0]!.latency_ms).toBe('number');
+  });
+
+  test('does not fire when the provider omits `usage`', async () => {
+    const noUsagePort = UPSTREAM_PORT + 1;
+    const server = Bun.serve({
+      port: noUsagePort,
+      hostname: '127.0.0.1',
+      async fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === '/v1/chat/completions') {
+          const body = (await req.json()) as { model: string };
+          return Response.json({
+            id: 'x',
+            object: 'chat.completion',
+            model: body.model,
+            created: 1,
+            choices: [
+              {
+                index: 0,
+                message: { role: 'assistant', content: 'ok' },
+                finish_reason: 'stop',
+              },
+            ],
+            // usage deliberately omitted
+          });
+        }
+        return new Response('', { status: 404 });
+      },
+    });
+    try {
+      const snapshots: Array<Record<string, unknown>> = [];
+      const p = createOpenAICompatProvider({
+        name: 'no-usage',
+        baseUrl: `http://127.0.0.1:${noUsagePort}/v1`,
+        apiKey: 'sk',
+        onUsage: (s) => { snapshots.push({ ...s }); },
+      });
+      await p.createResponse({
+        model: 'm',
+        messages: [{ role: 'user', content: 'x' }],
+      });
+      expect(snapshots).toHaveLength(0);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('onUsage throw does not bleed into the response path', async () => {
+    const p = createOpenAICompatProvider({
+      name: 'stub',
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      apiKey: 'sk-test',
+      onUsage: () => { throw new Error('logger boom'); },
+    });
+    const res = await p.createResponse({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(res.choices[0]!.message.content).toBe('hello');
+  });
+
+  test('fires on embeddings with kind: embedding + completion_tokens zeroed', async () => {
+    const snapshots: Array<Record<string, unknown>> = [];
+    const p = createOpenAICompatProvider({
+      name: 'stub',
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      apiKey: 'sk-test',
+      onUsage: (s) => { snapshots.push({ ...s }); },
+    });
+    await p.createEmbeddings?.({
+      model: 'text-embedding-3-small',
+      input: 'abc',
+    });
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]!.kind).toBe('embedding');
+    expect(snapshots[0]!.completion_tokens).toBe(0);
+    expect(snapshots[0]!.prompt_tokens).toBe(3); // input length
+  });
+
+  test('fires on streaming when upstream emits a usage frame', async () => {
+    const snapshots: Array<Record<string, unknown>> = [];
+    const p = createOpenAICompatProvider({
+      name: 'stub',
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      apiKey: 'sk-test',
+      onUsage: (s) => { snapshots.push({ ...s }); },
+    });
+    const request = {
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user' as const, content: 'hi' }],
+      providerOptions: { stream_options: { include_usage: true } },
+    };
+    for await (const _ev of p.streamResponse?.(request) ?? []) {
+      // drain
+      void _ev;
+    }
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]!.prompt_tokens).toBe(4);
+    expect(snapshots[0]!.completion_tokens).toBe(2);
+    expect(snapshots[0]!.total_tokens).toBe(6);
+  });
+
+  test('does NOT fire on streaming when upstream omits the usage frame', async () => {
+    const snapshots: Array<Record<string, unknown>> = [];
+    const p = createOpenAICompatProvider({
+      name: 'stub',
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      apiKey: 'sk-test',
+      onUsage: (s) => { snapshots.push({ ...s }); },
+    });
+    for await (const _ev of p.streamResponse?.({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hi' }],
+    }) ?? []) {
+      void _ev;
+    }
+    expect(snapshots).toHaveLength(0);
   });
 });
