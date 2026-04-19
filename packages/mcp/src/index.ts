@@ -31,3 +31,9 @@ export {
   createLlmExecutor,
   type CreateLlmExecutorOptions,
 } from './planner/llm-executor.js';
+export {
+  computeCostSnapshot,
+  type CostSnapshot,
+  type CostSnapshotOptions,
+  type CostGroup,
+} from './cost/snapshot.js';
