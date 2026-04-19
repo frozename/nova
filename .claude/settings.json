@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun test*)",
+      "Bash(bun install*)",
+      "Bash(bun run typecheck*)",
+      "Bash(bun run --cwd packages/*:*)",
+      "Bash(bun packages/mcp/bin/nova-mcp.ts*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show:*)",
+      "Bash(gh api:*)"
+    ]
+  }
+}
