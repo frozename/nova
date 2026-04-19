@@ -4,6 +4,7 @@ import { buildNovaMcpServer } from '../src/server.js';
 import { loadConfig } from '../src/facade/config.js';
 import { bootAll, closeAll, type Downstream } from '../src/facade/downstream.js';
 import { mountProxyTools } from '../src/facade/proxy.js';
+import { registerUnifiedTools } from '../src/tools/unified.js';
 
 /**
  * Stdio MCP server entry for the nova facade. Clients that want a
@@ -32,6 +33,7 @@ const NATIVE_TOOL_NAMES = [
   'nova.ops.healthcheck',
   'nova.ops.cost.snapshot',
   'nova.operator.plan',
+  'nova.models.list',
 ];
 
 async function main(): Promise<void> {
@@ -46,6 +48,7 @@ async function main(): Promise<void> {
   downstreams = await bootAll(config);
 
   const proxyResult = await mountProxyTools(server, downstreams, NATIVE_TOOL_NAMES);
+  registerUnifiedTools(server, downstreams);
 
   process.stderr.write(
     `nova-mcp: facade ready — ${downstreams.length} downstreams, ${proxyResult.mounted} proxied tools (${proxyResult.skipped.length} skipped), ${NATIVE_TOOL_NAMES.length} native tools.\n`,
