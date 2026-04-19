@@ -401,9 +401,14 @@ describe('nova.ops.cost.snapshot — MCP tool surface', () => {
   });
 
   test('returns the aggregated snapshot JSON envelope', async () => {
-    writeFile('openai-2026-04-18.jsonl', [
+    // Use a ts an hour in the past so the `ms < until` window check
+    // is race-free when the MCP tool samples its own `now`. Match
+    // the file-name date to the record's UTC day.
+    const ts = new Date(Date.now() - 3_600_000).toISOString();
+    const yyyymmdd = ts.slice(0, 10);
+    writeFile(`openai-${yyyymmdd}.jsonl`, [
       {
-        ts: new Date().toISOString(),
+        ts,
         provider: 'openai',
         model: 'gpt-4o',
         kind: 'chat',
