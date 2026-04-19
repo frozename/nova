@@ -252,27 +252,42 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
   server.registerTool(
     'nova.ops.cost.snapshot',
     {
-      title: 'Token-level cost snapshot',
+      title: 'Cost snapshot with optional dollar estimate',
       description:
-        'Aggregate recorded usage JSONL under ~/.llamactl/usage/ (or $LLAMACTL_USAGE_DIR) for the last `days` (default 7, max 90) into roll-ups per provider and per provider/model. Tokens + request counts + avg latency only — pricing-joined dollar amounts land with N.3.4. Returns zeros when no usage has been recorded yet.',
+        'Aggregate recorded usage JSONL under ~/.llamactl/usage/ (or $LLAMACTL_USAGE_DIR) for the last `days` (default 7, max 90) into roll-ups per provider and per provider/model. When pricing YAMLs exist under ~/.llamactl/pricing/ (or $LLAMACTL_PRICING_DIR / override via pricingDir), each record is joined against its (provider, model) rate and the estimated_cost_usd rolls up into group + grand totals. Missing pricing for a given (provider, model) leaves that group\'s cost blank and increments recordsMissingPricing; the snapshot never fails on missing pricing.',
       inputSchema: {
         days: z.number().int().positive().max(90).default(7),
         dir: z.string().optional(),
+        pricingDir: z.string().optional(),
+        disablePricing: z.boolean().optional(),
       },
     },
     async (input) => {
-      const snapshot = computeCostSnapshot({
+      const snapshotOpts: Parameters<typeof computeCostSnapshot>[0] = {
         days: input.days ?? 7,
-        ...(input.dir !== undefined ? { dir: input.dir } : {}),
-      });
+      };
+      if (input.dir !== undefined) snapshotOpts.dir = input.dir;
+      if (input.disablePricing === true) {
+        snapshotOpts.pricingDir = null;
+      } else if (input.pricingDir !== undefined) {
+        snapshotOpts.pricingDir = input.pricingDir;
+      }
+      const snapshot = computeCostSnapshot(snapshotOpts);
       appendAudit({
         server: SERVER_SLUG,
         tool: 'nova.ops.cost.snapshot',
-        input: { days: input.days ?? 7, dir: input.dir ?? null },
+        input: {
+          days: input.days ?? 7,
+          dir: input.dir ?? null,
+          pricingDir: input.pricingDir ?? null,
+          disablePricing: input.disablePricing === true,
+        },
         result: {
           filesScanned: snapshot.filesScanned,
           totalRequests: snapshot.totalRequests,
           totalTokens: snapshot.totalTokens,
+          totalEstimatedCostUsd: snapshot.totalEstimatedCostUsd ?? null,
+          pricingFilesLoaded: snapshot.pricingFilesLoaded,
         },
       });
       return toTextContent(snapshot);

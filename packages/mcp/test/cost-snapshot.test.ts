@@ -144,6 +144,241 @@ describe('computeCostSnapshot', () => {
   });
 });
 
+describe('computeCostSnapshot — pricing join (N.3.4)', () => {
+  let pricingDir = '';
+
+  beforeEach(() => {
+    pricingDir = mkdtempSync(join(tmpdir(), 'nova-pricing-'));
+  });
+  afterEach(() => {
+    rmSync(pricingDir, { recursive: true, force: true });
+  });
+
+  function writePricing(name: string, body: string): void {
+    writeFileSync(join(pricingDir, name), body);
+  }
+
+  test('rolls up estimated_cost_usd when pricing matches', () => {
+    writeFile('openai-2026-04-17.jsonl', [
+      {
+        ts: '2026-04-17T10:00:00Z',
+        provider: 'openai',
+        model: 'gpt-4o',
+        kind: 'chat',
+        prompt_tokens: 2000,
+        completion_tokens: 1000,
+        total_tokens: 3000,
+        latency_ms: 500,
+      },
+      {
+        ts: '2026-04-17T11:00:00Z',
+        provider: 'openai',
+        model: 'gpt-4o',
+        kind: 'chat',
+        prompt_tokens: 4000,
+        completion_tokens: 2000,
+        total_tokens: 6000,
+        latency_ms: 800,
+      },
+    ]);
+    writePricing(
+      'openai.yaml',
+      `provider: openai\nmodels:\n  gpt-4o:\n    prompt_per_1k_tokens_usd: 0.0025\n    completion_per_1k_tokens_usd: 0.010\n`,
+    );
+    const snap = computeCostSnapshot({
+      dir,
+      pricingDir,
+      days: 7,
+      now: () => new Date('2026-04-18T00:00:00Z'),
+    });
+    // record 1: 2*0.0025 + 1*0.010 = 0.015
+    // record 2: 4*0.0025 + 2*0.010 = 0.030
+    // total:   0.045
+    expect(snap.totalEstimatedCostUsd).toBeCloseTo(0.045, 10);
+    expect(snap.recordsMissingPricing).toBe(0);
+    expect(snap.pricingFilesLoaded).toBe(1);
+    const openai = snap.byProvider.find((g) => g.key === 'openai')!;
+    expect(openai.estimatedCostUsd).toBeCloseTo(0.045, 10);
+    expect(openai.recordsMissingPricing).toBe(0);
+  });
+
+  test('records without matching pricing leave group cost blank + bump missing counter', () => {
+    writeFile('openai-2026-04-17.jsonl', [
+      {
+        ts: '2026-04-17T10:00:00Z',
+        provider: 'openai',
+        model: 'gpt-4o',
+        kind: 'chat',
+        prompt_tokens: 1000,
+        completion_tokens: 500,
+        total_tokens: 1500,
+        latency_ms: 100,
+      },
+    ]);
+    writeFile('anthropic-2026-04-17.jsonl', [
+      {
+        ts: '2026-04-17T11:00:00Z',
+        provider: 'anthropic',
+        model: 'claude-opus',
+        kind: 'chat',
+        prompt_tokens: 500,
+        completion_tokens: 200,
+        total_tokens: 700,
+        latency_ms: 200,
+      },
+    ]);
+    writePricing(
+      'openai.yaml',
+      `provider: openai\nmodels:\n  gpt-4o:\n    prompt_per_1k_tokens_usd: 0.0025\n    completion_per_1k_tokens_usd: 0.010\n`,
+    );
+    // No anthropic.yaml — claude-opus record has no pricing.
+    const snap = computeCostSnapshot({
+      dir,
+      pricingDir,
+      days: 7,
+      now: () => new Date('2026-04-18T00:00:00Z'),
+    });
+    // Only the openai record contributes to cost.
+    expect(snap.totalEstimatedCostUsd).toBeCloseTo(0.0025 + 0.005, 10);
+    expect(snap.recordsMissingPricing).toBe(1);
+    const openai = snap.byProvider.find((g) => g.key === 'openai')!;
+    const anthropic = snap.byProvider.find((g) => g.key === 'anthropic')!;
+    expect(openai.estimatedCostUsd).toBeCloseTo(0.0075, 10);
+    expect(openai.recordsMissingPricing).toBe(0);
+    expect(anthropic.estimatedCostUsd).toBeUndefined();
+    expect(anthropic.recordsMissingPricing).toBe(1);
+  });
+
+  test('empty pricing dir → snapshot still runs, all costs undefined', () => {
+    writeFile('openai-2026-04-17.jsonl', [
+      {
+        ts: '2026-04-17T10:00:00Z',
+        provider: 'openai',
+        model: 'gpt-4o',
+        kind: 'chat',
+        prompt_tokens: 10,
+        completion_tokens: 5,
+        total_tokens: 15,
+        latency_ms: 100,
+      },
+    ]);
+    const snap = computeCostSnapshot({
+      dir,
+      pricingDir,
+      days: 7,
+      now: () => new Date('2026-04-18T00:00:00Z'),
+    });
+    expect(snap.totalEstimatedCostUsd).toBeUndefined();
+    expect(snap.recordsMissingPricing).toBe(1);
+    expect(snap.pricingFilesLoaded).toBe(0);
+    expect(snap.byProvider[0]!.estimatedCostUsd).toBeUndefined();
+  });
+
+  test('pricingDir=null disables pricing lookup entirely', () => {
+    writeFile('openai-2026-04-17.jsonl', [
+      {
+        ts: '2026-04-17T10:00:00Z',
+        provider: 'openai',
+        model: 'gpt-4o',
+        kind: 'chat',
+        prompt_tokens: 1000,
+        completion_tokens: 500,
+        total_tokens: 1500,
+        latency_ms: 100,
+      },
+    ]);
+    // Even with pricing on disk, null short-circuits.
+    writePricing(
+      'openai.yaml',
+      `provider: openai\nmodels:\n  gpt-4o:\n    prompt_per_1k_tokens_usd: 0.0025\n    completion_per_1k_tokens_usd: 0.010\n`,
+    );
+    const snap = computeCostSnapshot({
+      dir,
+      pricingDir: null,
+      days: 7,
+      now: () => new Date('2026-04-18T00:00:00Z'),
+    });
+    expect(snap.totalEstimatedCostUsd).toBeUndefined();
+    expect(snap.pricingFilesLoaded).toBe(0);
+  });
+
+  test('injected catalog bypasses disk entirely', () => {
+    writeFile('openai-2026-04-17.jsonl', [
+      {
+        ts: '2026-04-17T10:00:00Z',
+        provider: 'openai',
+        model: 'gpt-4o',
+        kind: 'chat',
+        prompt_tokens: 1000,
+        completion_tokens: 500,
+        total_tokens: 1500,
+        latency_ms: 100,
+      },
+    ]);
+    const catalog = new Map();
+    catalog.set('openai', {
+      provider: 'openai',
+      models: {
+        'gpt-4o': {
+          prompt_per_1k_tokens_usd: 0.01,
+          completion_per_1k_tokens_usd: 0.02,
+        },
+      },
+    });
+    const snap = computeCostSnapshot({
+      dir,
+      pricing: catalog,
+      days: 7,
+      now: () => new Date('2026-04-18T00:00:00Z'),
+    });
+    // 1*0.01 + 0.5*0.02 = 0.02
+    expect(snap.totalEstimatedCostUsd).toBeCloseTo(0.02, 10);
+    expect(snap.pricingFilesLoaded).toBe(0); // no disk touched
+  });
+
+  test('groups sort by cost desc when costs exist, falling back to tokens on ties', () => {
+    writeFile('openai-2026-04-17.jsonl', [
+      {
+        ts: '2026-04-17T10:00:00Z',
+        provider: 'openai',
+        model: 'gpt-4o',
+        kind: 'chat',
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        latency_ms: 100,
+      },
+    ]);
+    writeFile('anthropic-2026-04-17.jsonl', [
+      {
+        ts: '2026-04-17T11:00:00Z',
+        provider: 'anthropic',
+        model: 'claude-opus',
+        kind: 'chat',
+        prompt_tokens: 200,
+        completion_tokens: 100,
+        total_tokens: 300,
+        latency_ms: 200,
+      },
+    ]);
+    // openai gets pricing; anthropic doesn't.
+    writePricing(
+      'openai.yaml',
+      `provider: openai\nmodels:\n  gpt-4o:\n    prompt_per_1k_tokens_usd: 100\n    completion_per_1k_tokens_usd: 100\n`,
+    );
+    const snap = computeCostSnapshot({
+      dir,
+      pricingDir,
+      days: 7,
+      now: () => new Date('2026-04-18T00:00:00Z'),
+    });
+    // openai cost > 0, anthropic undefined (treated as -1 in sort) —
+    // openai wins regardless of token totals.
+    expect(snap.byProvider[0]!.key).toBe('openai');
+    expect(snap.byProvider[1]!.key).toBe('anthropic');
+  });
+});
+
 async function connected() {
   const server = buildNovaMcpServer();
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

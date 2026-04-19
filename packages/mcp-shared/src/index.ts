@@ -16,3 +16,12 @@ export {
   type UsageReadOptions,
   type UsageReadResult,
 } from './usage-reader.js';
+export {
+  defaultPricingDir,
+  loadPricing,
+  estimateCostUsd,
+  computeCost,
+  findModelPricing,
+  type LoadPricingOptions,
+  type LoadPricingResult,
+} from './pricing.js';
