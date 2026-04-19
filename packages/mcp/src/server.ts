@@ -11,6 +11,7 @@ import {
 import { runPlanner, type PlannerExecutor } from './planner/executor.js';
 import type { AllowlistConfig } from './planner/allowlist.js';
 import type { PlannerToolDescriptor } from './planner/schema.js';
+import { computeCostSnapshot } from './cost/snapshot.js';
 
 /**
  * `@nova/mcp` — unified MCP facade across the llamactl family.
@@ -245,6 +246,36 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
         gateways: gatewayProbes,
         siriusProviders: providerProbes,
       });
+    },
+  );
+
+  server.registerTool(
+    'nova.ops.cost.snapshot',
+    {
+      title: 'Token-level cost snapshot',
+      description:
+        'Aggregate recorded usage JSONL under ~/.llamactl/usage/ (or $LLAMACTL_USAGE_DIR) for the last `days` (default 7, max 90) into roll-ups per provider and per provider/model. Tokens + request counts + avg latency only — pricing-joined dollar amounts land with N.3.4. Returns zeros when no usage has been recorded yet.',
+      inputSchema: {
+        days: z.number().int().positive().max(90).default(7),
+        dir: z.string().optional(),
+      },
+    },
+    async (input) => {
+      const snapshot = computeCostSnapshot({
+        days: input.days ?? 7,
+        ...(input.dir !== undefined ? { dir: input.dir } : {}),
+      });
+      appendAudit({
+        server: SERVER_SLUG,
+        tool: 'nova.ops.cost.snapshot',
+        input: { days: input.days ?? 7, dir: input.dir ?? null },
+        result: {
+          filesScanned: snapshot.filesScanned,
+          totalRequests: snapshot.totalRequests,
+          totalTokens: snapshot.totalTokens,
+        },
+      });
+      return toTextContent(snapshot);
     },
   );
 

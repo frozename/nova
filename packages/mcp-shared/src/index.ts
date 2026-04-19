@@ -11,3 +11,8 @@ export {
   defaultUsageDir,
   type UsageWriteOptions,
 } from './usage.js';
+export {
+  readUsage,
+  type UsageReadOptions,
+  type UsageReadResult,
+} from './usage-reader.js';

@@ -95,6 +95,7 @@ describe('nova.operator.plan — MCP tool surface', () => {
     const names = list.tools.map((t) => t.name).sort();
     expect(names).toEqual([
       'nova.operator.plan',
+      'nova.ops.cost.snapshot',
       'nova.ops.healthcheck',
       'nova.ops.overview',
     ]);
