@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
-    "@nova/mcp-shared": "workspace:*",
+    "@nova/mcp-shared": "file:../mcp-shared",
     "yaml": "^2.7.0",
     "zod": "^4.3.6"
   },
