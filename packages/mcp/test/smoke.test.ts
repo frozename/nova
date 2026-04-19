@@ -114,11 +114,15 @@ function auditLines(): Array<Record<string, unknown>> {
 }
 
 describe('@nova/mcp facade', () => {
-  test('listTools advertises the two roll-up tools', async () => {
+  test('listTools advertises the ops + operator.plan tools', async () => {
     const client = await connected();
     const list = await client.listTools();
     const names = list.tools.map((t) => t.name).sort();
-    expect(names).toEqual(['nova.ops.healthcheck', 'nova.ops.overview']);
+    expect(names).toEqual([
+      'nova.operator.plan',
+      'nova.ops.healthcheck',
+      'nova.ops.overview',
+    ]);
   });
 
   test('nova.ops.overview unifies kubeconfig + sirius + embersynth', async () => {

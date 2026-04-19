@@ -8,6 +8,9 @@ import {
   defaultKubeconfigPath,
   defaultSiriusProvidersPath,
 } from './paths.js';
+import { runPlanner, type PlannerExecutor } from './planner/executor.js';
+import type { AllowlistConfig } from './planner/allowlist.js';
+import type { PlannerToolDescriptor } from './planner/schema.js';
 
 /**
  * `@nova/mcp` — unified MCP facade across the llamactl family.
@@ -30,9 +33,11 @@ import {
  *     stdio processes and proxying their tool surfaces one-for-one.
  *     Future work; for now, MCP clients connect to each server
  *     directly (they're designed to multiplex).
- *   * `nova.operator.plan(goal)` — the LLM-backed "translate intent
- *     into tool calls" tool. Needs a model binding + safety shape;
- *     warrants its own design pass.
+ *   * `nova.operator.plan(goal)` — N.4.2 ships the tool surface +
+ *     prompt/allowlist/schema plumbing wired to an injectable
+ *     executor. The default executor is a canned stub so operators
+ *     can sanity-check the pipeline; the real LLM binding lands in
+ *     N.4.3 as a new executor implementation.
  */
 
 const SERVER_SLUG = 'nova';
@@ -105,11 +110,31 @@ async function probeEndpoint(url: string, timeoutMs = 1500): Promise<{ ok: boole
   }
 }
 
-export function buildNovaMcpServer(opts?: { name?: string; version?: string }): McpServer {
+export interface BuildNovaMcpServerOptions {
+  name?: string;
+  version?: string;
+  /** Injectable planner executor — defaults to the canned stub until
+   *  N.4.3 wires a real LLM-backed implementation. Tests pass their
+   *  own implementation to assert shape without spinning up a model. */
+  plannerExecutor?: PlannerExecutor;
+  /** Allowlist override used by `nova.operator.plan`. Defaults to the
+   *  DEFAULT_ALLOWLIST shipped with @nova/mcp. */
+  plannerAllowlist?: AllowlistConfig;
+  /** Tool catalog the planner advertises to the executor. Defaults to
+   *  an empty list — `nova.operator.plan` can still run (the stub
+   *  acknowledges the goal), but real planning needs the MCP client
+   *  or a future catalog-discovery helper to populate this. */
+  plannerTools?: PlannerToolDescriptor[];
+}
+
+export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer {
   const server = new McpServer({
     name: opts?.name ?? 'nova',
     version: opts?.version ?? '0.0.0',
   });
+  const plannerTools = opts?.plannerTools ?? [];
+  const plannerAllowlist = opts?.plannerAllowlist;
+  const plannerExecutor = opts?.plannerExecutor;
 
   server.registerTool(
     'nova.ops.overview',
@@ -219,6 +244,62 @@ export function buildNovaMcpServer(opts?: { name?: string; version?: string }): 
         timeoutMs,
         gateways: gatewayProbes,
         siriusProviders: providerProbes,
+      });
+    },
+  );
+
+  server.registerTool(
+    'nova.operator.plan',
+    {
+      title: 'Translate an operator goal into an MCP tool-call plan',
+      description:
+        'Given a natural-language operational goal, produces a short sequence of MCP tool calls that, when executed, achieve the goal. The returned plan is validated against PlanSchema (max 20 steps, required per-step annotations). Tool allowlist filters which MCP tools the planner is allowed to propose. Default executor is a canned stub until an LLM-backed executor is bound (N.4.3); the wire shape is identical across executors.',
+      inputSchema: {
+        goal: z.string().min(1, 'goal must be non-empty'),
+        context: z
+          .string()
+          .default('')
+          .describe('Compact fleet snapshot string; rendered verbatim under FLEET CONTEXT.'),
+      },
+    },
+    async (input) => {
+      const result = await runPlanner({
+        goal: input.goal,
+        context: input.context ?? '',
+        tools: plannerTools,
+        ...(plannerAllowlist ? { allowlist: plannerAllowlist } : {}),
+        ...(plannerExecutor ? { executor: plannerExecutor } : {}),
+      });
+      appendAudit({
+        server: SERVER_SLUG,
+        tool: 'nova.operator.plan',
+        input: { goal: input.goal, contextLen: (input.context ?? '').length },
+        result: result.ok
+          ? {
+              outcome: 'ok',
+              executor: result.executor,
+              stepCount: result.plan.steps.length,
+            }
+          : {
+              outcome: 'failed',
+              reason: result.reason,
+              executor: result.executor ?? null,
+            },
+      });
+      if (!result.ok) {
+        return toTextContent({
+          ok: false,
+          reason: result.reason,
+          message: result.message,
+          executor: result.executor ?? null,
+          rawPlan: result.rawPlan ?? null,
+        });
+      }
+      return toTextContent({
+        ok: true,
+        executor: result.executor,
+        toolsAvailable: result.toolsAvailable,
+        plan: result.plan,
       });
     },
   );
