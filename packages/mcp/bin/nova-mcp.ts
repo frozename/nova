@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { buildNovaMcpServer } from '../src/server.js';
 import { loadConfig } from '../src/facade/config.js';
 import { bootAll, closeAll, type Downstream } from '../src/facade/downstream.js';
+import { mountProxyTools } from '../src/facade/proxy.js';
 
 /**
  * Stdio MCP server entry for the nova facade. Clients that want a
@@ -13,15 +14,25 @@ import { bootAll, closeAll, type Downstream } from '../src/facade/downstream.js'
  * Phase 2: boots the facade infrastructure — loads
  * `~/.llamactl/nova-mcp.yaml` (or `$NOVA_MCP_CONFIG`) and opens MCP
  * client connections to each configured downstream. Missing config
- * is fine; the facade still serves its native `nova.*` tools. Phase
- * 3 will read `downstreams` and re-advertise their tool surfaces on
- * the nova server.
+ * is fine; the facade still serves its native `nova.*` tools.
+ *
+ * Phase 3: `mountProxyTools` snapshots each downstream's `listTools`
+ * and re-advertises every tool on the upstream server as a 1:1
+ * proxy. Collision policy is first-wins with the native `nova.*`
+ * tools seeded into the "taken" set.
  */
 
-// Phase-2 stash — proxy layer (Phase 3) will move this into the
-// server builder's context; keeping it module-scoped keeps the
-// wiring minimal for now.
+// Module-scoped downstream stash so SIGINT/SIGTERM shutdown can close
+// them cleanly. Mounted onto the server before `server.connect(...)`
+// so the initial handshake already reports the full proxied surface.
 let downstreams: Downstream[] = [];
+
+const NATIVE_TOOL_NAMES = [
+  'nova.ops.overview',
+  'nova.ops.healthcheck',
+  'nova.ops.cost.snapshot',
+  'nova.operator.plan',
+];
 
 async function main(): Promise<void> {
   const server = buildNovaMcpServer();
@@ -34,9 +45,10 @@ async function main(): Promise<void> {
   }
   downstreams = await bootAll(config);
 
-  const nativeToolCount = 4;
+  const proxyResult = await mountProxyTools(server, downstreams, NATIVE_TOOL_NAMES);
+
   process.stderr.write(
-    `nova-mcp: facade ready — ${downstreams.length} downstreams connected, ${nativeToolCount} native tools.\n`,
+    `nova-mcp: facade ready — ${downstreams.length} downstreams, ${proxyResult.mounted} proxied tools (${proxyResult.skipped.length} skipped), ${NATIVE_TOOL_NAMES.length} native tools.\n`,
   );
 
   const shutdown = async (signal: string): Promise<void> => {
