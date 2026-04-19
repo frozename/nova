@@ -27,3 +27,7 @@ export {
   type RunPlannerOptions,
   type RunPlannerResult,
 } from './planner/executor.js';
+export {
+  createLlmExecutor,
+  type CreateLlmExecutorOptions,
+} from './planner/llm-executor.js';
