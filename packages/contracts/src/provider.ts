@@ -3,6 +3,15 @@ import type { UnifiedStreamEvent } from './schemas/stream.js';
 import type { UnifiedEmbeddingRequest, UnifiedEmbeddingResponse } from './schemas/embeddings.js';
 import type { ModelInfo } from './schemas/models.js';
 import type { ProviderHealth } from './schemas/health.js';
+import type {
+  DeleteRequest,
+  DeleteResponse,
+  ListCollectionsResponse,
+  SearchRequest,
+  SearchResponse,
+  StoreRequest,
+  StoreResponse,
+} from './schemas/retrieval.js';
 
 /**
  * Canonical AI-provider adapter. Every backend — local llama.cpp
@@ -45,6 +54,29 @@ export interface AiProvider {
   listModels?(): Promise<ModelInfo[]>;
 
   healthCheck?(): Promise<ProviderHealth>;
+}
+
+/**
+ * Retrieval (RAG) provider adapter. Nodes carrying a `rag` binding in
+ * llamactl's kubeconfig resolve to one of these at call time; ops-chat,
+ * the Electron Knowledge module, and future Chat/Pipelines consumers
+ * all talk to the interface rather than any specific backend. Score
+ * semantics are documented on `SearchResultSchema`: cosine similarity
+ * normalized to `0..1`.
+ *
+ * `embed` is optional — backends like Chroma embed internally and have
+ * no separate embedding surface exposed to callers; adapters omit it
+ * in that case. `close()` tears down any held subprocess / connection
+ * pool so tRPC procedures can open-and-close per call without leaking.
+ */
+export interface RetrievalProvider {
+  readonly kind: string;
+  search(request: SearchRequest): Promise<SearchResponse>;
+  store(request: StoreRequest): Promise<StoreResponse>;
+  delete(request: DeleteRequest): Promise<DeleteResponse>;
+  listCollections(): Promise<ListCollectionsResponse>;
+  embed?(request: UnifiedEmbeddingRequest): Promise<UnifiedEmbeddingResponse>;
+  close(): Promise<void>;
 }
 
 /**
