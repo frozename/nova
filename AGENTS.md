@@ -223,6 +223,20 @@ restarts, the facade's proxy handlers call through a dead client and
 surface the error; the operator restarts the facade to pick up new
 tools. Reconnect / live-refresh is a future slice, not a bug.
 
+### Sibling MCP fleet
+
+The Nova-aware MCP fleet has a fourth peer that isn't a downstream of
+this facade: `@penumbra/mcp` (local-first observability + cross-agent
+chat orchestrator) at
+`/Volumes/WorkSSD/repos/personal/penumbra/packages/mcp/`. It exposes
+`memory.observe`, `memory.recall`, `session.end`,
+`handoff.list_pending`, `handoff.approve`, and `chain.start` — useful
+when a Nova-orchestrated workflow needs to hand a sub-task off to a
+separate agent (Claude / Gemini / Codex / local LLM) and observe the
+result. Penumbra registers as its own `mcpServers.penumbra` entry in
+the harness configs, alongside `nova`. Don't proxy it through Nova's
+facade; the two coexist as siblings.
+
 ### What to avoid (facade-specific)
 
 - Dynamic re-discovery of downstream tools at call time. Boot-time
