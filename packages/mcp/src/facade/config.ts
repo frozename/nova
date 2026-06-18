@@ -1,8 +1,8 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
-import { z } from 'zod';
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
+import { z } from "zod";
 
 /**
  * Facade config loader for `@nova/mcp`. Reads a YAML file at
@@ -22,7 +22,7 @@ import { z } from 'zod';
 
 const StdioSpec = z.object({
   name: z.string(),
-  transport: z.literal('stdio'),
+  transport: z.literal("stdio"),
   command: z.string(),
   args: z.array(z.string()).default([]),
   env: z.record(z.string(), z.string()).optional(),
@@ -30,12 +30,12 @@ const StdioSpec = z.object({
 
 const HttpSpec = z.object({
   name: z.string(),
-  transport: z.literal('http'),
+  transport: z.literal("http"),
   url: z.url(),
   token: z.string().optional(),
 });
 
-export const DownstreamSpec = z.discriminatedUnion('transport', [StdioSpec, HttpSpec]);
+export const DownstreamSpec = z.discriminatedUnion("transport", [StdioSpec, HttpSpec]);
 export type DownstreamSpec = z.infer<typeof DownstreamSpec>;
 
 export const NovaMcpConfigV1 = z.object({
@@ -49,7 +49,7 @@ export interface LoadConfigOptions {
 }
 
 export function defaultNovaMcpConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.NOVA_MCP_CONFIG?.trim() || join(homedir(), '.llamactl', 'nova-mcp.yaml');
+  return env.NOVA_MCP_CONFIG?.trim() || join(homedir(), ".llamactl", "nova-mcp.yaml");
 }
 
 const INTERP_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -62,9 +62,9 @@ function interpolateString(s: string, env: NodeJS.ProcessEnv): string {
 }
 
 function interpolate(value: unknown, env: NodeJS.ProcessEnv): unknown {
-  if (typeof value === 'string') return interpolateString(value, env);
+  if (typeof value === "string") return interpolateString(value, env);
   if (Array.isArray(value)) return value.map((v) => interpolate(v, env));
-  if (value && typeof value === 'object') {
+  if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       out[k] = interpolate(v, env);
@@ -81,7 +81,7 @@ function interpolate(value: unknown, env: NodeJS.ProcessEnv): unknown {
 export function loadConfig(opts: LoadConfigOptions = {}): NovaMcpConfigV1 | null {
   const path = opts.path ?? defaultNovaMcpConfigPath();
   if (!existsSync(path)) return null;
-  const raw = readFileSync(path, 'utf8');
+  const raw = readFileSync(path, "utf8");
   const parsed = parseYaml(raw) as unknown;
   const interpolated = interpolate(parsed, process.env);
   return NovaMcpConfigV1.parse(interpolated);

@@ -1,5 +1,5 @@
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 /**
  * Canonical locations of the three operator YAMLs llamactl authors
@@ -10,17 +10,17 @@ import { join } from 'node:path';
  */
 
 function base(env: NodeJS.ProcessEnv): string {
-  return env.DEV_STORAGE?.trim() || join(homedir(), '.llamactl');
+  return env.DEV_STORAGE?.trim() || join(homedir(), ".llamactl");
 }
 
 export function defaultKubeconfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.LLAMACTL_CONFIG?.trim() || join(base(env), 'config');
+  return env.LLAMACTL_CONFIG?.trim() || join(base(env), "config");
 }
 
 export function defaultSiriusProvidersPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.LLAMACTL_PROVIDERS_FILE?.trim() || join(base(env), 'sirius-providers.yaml');
+  return env.LLAMACTL_PROVIDERS_FILE?.trim() || join(base(env), "sirius-providers.yaml");
 }
 
 export function defaultEmbersynthConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.LLAMACTL_EMBERSYNTH_CONFIG?.trim() || join(base(env), 'embersynth.yaml');
+  return env.LLAMACTL_EMBERSYNTH_CONFIG?.trim() || join(base(env), "embersynth.yaml");
 }

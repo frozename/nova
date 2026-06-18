@@ -1,6 +1,6 @@
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 
 /**
  * Append-only JSONL audit sink. Every mutation tool emits one record
@@ -43,13 +43,13 @@ export interface AuditOptions {
 export function defaultAuditDir(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.LLAMACTL_MCP_AUDIT_DIR?.trim();
   if (override) return override;
-  return join(homedir(), '.llamactl', 'mcp', 'audit');
+  return join(homedir(), ".llamactl", "mcp", "audit");
 }
 
 function auditFilePath(dir: string, server: string, now: Date): string {
   const y = now.getUTCFullYear();
-  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(now.getUTCDate()).padStart(2, '0');
+  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(now.getUTCDate()).padStart(2, "0");
   return join(dir, `${server}-${y}-${m}-${d}.jsonl`);
 }
 
@@ -67,6 +67,6 @@ export function appendAudit(opts: AuditOptions): AuditRecord {
   };
   const file = auditFilePath(dir, opts.server, now);
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, `${JSON.stringify(record)}\n`, 'utf8');
+  appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
   return record;
 }

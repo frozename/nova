@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Planner data shapes. Separated from the tool-registration layer so
@@ -29,7 +29,7 @@ export const PlanStepSchema = z.object({
 export type PlanStep = z.infer<typeof PlanStepSchema>;
 
 export const PlanSchema = z.object({
-  steps: z.array(PlanStepSchema).max(20, 'plan exceeds 20-step hard cap'),
+  steps: z.array(PlanStepSchema).max(20, "plan exceeds 20-step hard cap"),
   /** Top-level reasoning — the "why" for the whole plan, separate
    *  from per-step annotations. Renders above the step list in
    *  operator confirmation UI. */
@@ -43,7 +43,7 @@ export type Plan = z.infer<typeof PlanSchema>;
 
 /** Classification for a tool name by policy tier. Used by the
  *  allowlist filter + the executor's dry-run-cascade decision. */
-export type ToolSafetyTier = 'read' | 'mutation-dry-run-safe' | 'mutation-destructive';
+export type ToolSafetyTier = "read" | "mutation-dry-run-safe" | "mutation-destructive";
 
 /**
  * Catalog entry fed to the planner prompt. Each tool contributes a

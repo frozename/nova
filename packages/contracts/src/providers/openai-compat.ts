@@ -1,13 +1,10 @@
-import type { AiProvider } from '../provider.js';
-import type { ModelInfo } from '../schemas/models.js';
-import type { ProviderHealth } from '../schemas/health.js';
-import type { UnifiedAiRequest, UnifiedAiResponse } from '../schemas/chat.js';
-import type {
-  UnifiedEmbeddingRequest,
-  UnifiedEmbeddingResponse,
-} from '../schemas/embeddings.js';
-import type { UnifiedStreamEvent } from '../schemas/stream.js';
-import type { UsageKind } from '../schemas/usage.js';
+import type { AiProvider } from "../provider.js";
+import type { ModelInfo } from "../schemas/models.js";
+import type { ProviderHealth } from "../schemas/health.js";
+import type { UnifiedAiRequest, UnifiedAiResponse } from "../schemas/chat.js";
+import type { UnifiedEmbeddingRequest, UnifiedEmbeddingResponse } from "../schemas/embeddings.js";
+import type { UnifiedStreamEvent } from "../schemas/stream.js";
+import type { UsageKind } from "../schemas/usage.js";
 
 /**
  * Callback fired after a successful chat or embedding round-trip
@@ -80,14 +77,14 @@ export interface OpenAICompatOptions {
 }
 
 function trimTrailingSlash(url: string): string {
-  return url.endsWith('/') ? url.slice(0, -1) : url;
+  return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
 export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvider {
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const base = trimTrailingSlash(opts.baseUrl);
   const headers = (): Record<string, string> => ({
-    'content-type': 'application/json',
+    "content-type": "application/json",
     authorization: `Bearer ${opts.apiKey}`,
     ...(opts.extraHeaders ?? {}),
   });
@@ -118,12 +115,12 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       // Strip nova-only fields before sending upstream.
       const { capabilities: _c, providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}) };
-      const res = await call('/chat/completions', {
-        method: 'POST',
+      const res = await call("/chat/completions", {
+        method: "POST",
         body: JSON.stringify({ ...body, stream: false }),
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
+        const text = await res.text().catch(() => "");
         throw new Error(`${opts.name} ${res.status}: ${text.slice(0, 500)}`);
       }
       const raw = (await res.json()) as UnifiedAiResponse;
@@ -132,7 +129,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         fireUsage({
           provider: opts.name,
           model: raw.model ?? request.model,
-          kind: 'chat',
+          kind: "chat",
           prompt_tokens: raw.usage.prompt_tokens,
           completion_tokens: raw.usage.completion_tokens,
           total_tokens: raw.usage.total_tokens,
@@ -152,15 +149,15 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
     ): AsyncIterable<UnifiedStreamEvent> {
       const { capabilities: _c, providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}), stream: true };
-      const res = await call('/chat/completions', {
-        method: 'POST',
+      const res = await call("/chat/completions", {
+        method: "POST",
         body: JSON.stringify(body),
         ...(signal ? { signal } : {}),
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
+        const text = await res.text().catch(() => "");
         yield {
-          type: 'error',
+          type: "error",
           error: {
             message: `${opts.name} ${res.status}: ${text.slice(0, 500)}`,
             code: String(res.status),
@@ -170,14 +167,14 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         return;
       }
       if (!res.body) {
-        yield { type: 'done', finish_reason: 'stop' };
+        yield { type: "done", finish_reason: "stop" };
         return;
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       const startedAt = Date.now();
-      let buffer = '';
-      let lastFinish: UnifiedStreamEvent = { type: 'done', finish_reason: 'stop' };
+      let buffer = "";
+      let lastFinish: UnifiedStreamEvent = { type: "done", finish_reason: "stop" };
       let lastModel = request.model;
       while (true) {
         if (signal?.aborted) break;
@@ -187,12 +184,12 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         // OpenAI SSE frames are separated by blank lines; each frame
         // is a `data: {...}` line (plus `event:` in some dialects).
         let nl: number;
-        while ((nl = buffer.indexOf('\n\n')) !== -1) {
+        while ((nl = buffer.indexOf("\n\n")) !== -1) {
           const frame = buffer.slice(0, nl).trim();
           buffer = buffer.slice(nl + 2);
-          if (!frame.startsWith('data:')) continue;
+          if (!frame.startsWith("data:")) continue;
           const payload = frame.slice(5).trim();
-          if (payload === '[DONE]') {
+          if (payload === "[DONE]") {
             yield lastFinish;
             return;
           }
@@ -205,12 +202,12 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
               choices?: Array<{
                 index?: number;
                 delta?: {
-                  role?: 'assistant' | 'tool';
+                  role?: "assistant" | "tool";
                   content?: string | null;
                   tool_calls?: Array<{
                     index: number;
                     id?: string;
-                    type?: 'function';
+                    type?: "function";
                     function?: { name?: string; arguments?: string };
                   }>;
                 };
@@ -231,7 +228,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
               fireUsage({
                 provider: opts.name,
                 model: lastModel,
-                kind: 'chat',
+                kind: "chat",
                 prompt_tokens: chunk.usage.prompt_tokens ?? 0,
                 completion_tokens: chunk.usage.completion_tokens ?? 0,
                 total_tokens: chunk.usage.total_tokens ?? 0,
@@ -242,15 +239,20 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
             const finish = chunk.choices[0]?.finish_reason;
             if (finish) {
               lastFinish = {
-                type: 'done',
-                finish_reason: finish as UnifiedStreamEvent extends { type: 'done'; finish_reason: infer F } ? F : never,
+                type: "done",
+                finish_reason: finish as UnifiedStreamEvent extends {
+                  type: "done";
+                  finish_reason: infer F;
+                }
+                  ? F
+                  : never,
               };
             }
             yield {
-              type: 'chunk',
+              type: "chunk",
               chunk: {
-                id: chunk.id ?? '',
-                object: 'chat.completion.chunk',
+                id: chunk.id ?? "",
+                object: "chat.completion.chunk",
                 model: chunk.model ?? request.model,
                 created: chunk.created ?? Math.floor(Date.now() / 1000),
                 choices: chunk.choices.map((c) => ({
@@ -261,7 +263,14 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
                     ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
                   },
                   ...(c.finish_reason !== undefined
-                    ? { finish_reason: c.finish_reason as UnifiedStreamEvent extends { type: 'done'; finish_reason: infer F } ? F : never }
+                    ? {
+                        finish_reason: c.finish_reason as UnifiedStreamEvent extends {
+                          type: "done";
+                          finish_reason: infer F;
+                        }
+                          ? F
+                          : never,
+                      }
                     : {}),
                 })),
               },
@@ -274,18 +283,16 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       yield lastFinish;
     },
 
-    async createEmbeddings(
-      request: UnifiedEmbeddingRequest,
-    ): Promise<UnifiedEmbeddingResponse> {
+    async createEmbeddings(request: UnifiedEmbeddingRequest): Promise<UnifiedEmbeddingResponse> {
       const startedAt = Date.now();
       const { providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}) };
-      const res = await call('/embeddings', {
-        method: 'POST',
+      const res = await call("/embeddings", {
+        method: "POST",
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
+        const text = await res.text().catch(() => "");
         throw new Error(`${opts.name} ${res.status}: ${text.slice(0, 500)}`);
       }
       const raw = (await res.json()) as UnifiedEmbeddingResponse & {
@@ -296,7 +303,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         fireUsage({
           provider: opts.name,
           model: raw.model ?? request.model,
-          kind: 'embedding',
+          kind: "embedding",
           prompt_tokens: raw.usage.prompt_tokens ?? 0,
           completion_tokens: 0,
           total_tokens: raw.usage.total_tokens ?? raw.usage.prompt_tokens ?? 0,
@@ -311,44 +318,46 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
     },
 
     async listModels(): Promise<ModelInfo[]> {
-      const res = await call('/models', { method: 'GET' });
+      const res = await call("/models", { method: "GET" });
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
+        const text = await res.text().catch(() => "");
         throw new Error(`${opts.name} /models ${res.status}: ${text.slice(0, 500)}`);
       }
-      const raw = (await res.json()) as { data?: Array<{ id?: string; created?: number; owned_by?: string }> };
+      const raw = (await res.json()) as {
+        data?: Array<{ id?: string; created?: number; owned_by?: string }>;
+      };
       const now = Math.floor(Date.now() / 1000);
       return (raw.data ?? []).map((m) => ({
-        id: String(m.id ?? ''),
-        object: 'model' as const,
+        id: String(m.id ?? ""),
+        object: "model" as const,
         created: m.created ?? now,
         owned_by: m.owned_by ?? opts.name,
-        capabilities: ['chat' as const],
+        capabilities: ["chat" as const],
       }));
     },
 
     async healthCheck(): Promise<ProviderHealth> {
       const startedAt = Date.now();
-      const probePath = opts.healthPath ?? '/models';
+      const probePath = opts.healthPath ?? "/models";
       try {
-        const res = await call(probePath, { method: 'GET' });
+        const res = await call(probePath, { method: "GET" });
         const latencyMs = Date.now() - startedAt;
         if (!res.ok) {
           return {
-            state: res.status >= 500 ? 'unhealthy' : 'degraded',
+            state: res.status >= 500 ? "unhealthy" : "degraded",
             lastChecked: new Date().toISOString(),
             latencyMs,
             error: `HTTP ${res.status}`,
           };
         }
         return {
-          state: 'healthy',
+          state: "healthy",
           lastChecked: new Date().toISOString(),
           latencyMs,
         };
       } catch (err) {
         return {
-          state: 'unhealthy',
+          state: "unhealthy",
           lastChecked: new Date().toISOString(),
           error: (err as Error).message,
         };

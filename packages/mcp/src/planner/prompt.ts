@@ -1,4 +1,4 @@
-import type { PlannerToolDescriptor } from './schema.js';
+import type { PlannerToolDescriptor } from "./schema.js";
 
 /**
  * Pure prompt builder for the planner LLM. Takes the filtered tool
@@ -46,75 +46,68 @@ RULES:
 
 function describeTool(t: PlannerToolDescriptor): string {
   const tierTag =
-    t.tier === 'read'
-      ? 'READ'
-      : t.tier === 'mutation-dry-run-safe'
-        ? 'MUTATION (dry-run-safe)'
-        : 'MUTATION (destructive)';
+    t.tier === "read"
+      ? "READ"
+      : t.tier === "mutation-dry-run-safe"
+        ? "MUTATION (dry-run-safe)"
+        : "MUTATION (destructive)";
   return `- \`${t.name}\` [${tierTag}]: ${t.description}`;
 }
 
-export function buildPlannerPrompt(
-  opts: BuildPlannerPromptOptions,
-): BuildPlannerPromptResult {
-  const toolList = opts.tools.map(describeTool).join('\n');
-  const systemMessage = [
-    SYSTEM_TEMPLATE,
-    '',
-    'AVAILABLE TOOLS:',
-    toolList || '(none)',
-  ].join('\n');
+export function buildPlannerPrompt(opts: BuildPlannerPromptOptions): BuildPlannerPromptResult {
+  const toolList = opts.tools.map(describeTool).join("\n");
+  const systemMessage = [SYSTEM_TEMPLATE, "", "AVAILABLE TOOLS:", toolList || "(none)"].join("\n");
   const userMessage = [
-    'FLEET CONTEXT:',
-    opts.context.trim().length > 0 ? opts.context.trim() : '(no context supplied)',
-    '',
-    'GOAL:',
+    "FLEET CONTEXT:",
+    opts.context.trim().length > 0 ? opts.context.trim() : "(no context supplied)",
+    "",
+    "GOAL:",
     opts.goal.trim(),
-  ].join('\n');
+  ].join("\n");
 
   const submitPlanFunction = {
-    name: 'submit_plan',
+    name: "submit_plan",
     description:
-      'Submit a plan — a short sequence of MCP tool calls — that, when executed, achieves the operator goal.',
+      "Submit a plan — a short sequence of MCP tool calls — that, when executed, achieves the operator goal.",
     parameters: {
-      type: 'object',
-      required: ['steps', 'reasoning'],
+      type: "object",
+      required: ["steps", "reasoning"],
       properties: {
         steps: {
-          type: 'array',
+          type: "array",
           maxItems: 20,
           items: {
-            type: 'object',
-            required: ['tool', 'annotation'],
+            type: "object",
+            required: ["tool", "annotation"],
             properties: {
               tool: {
-                type: 'string',
-                description: 'Fully-qualified MCP tool name.',
+                type: "string",
+                description: "Fully-qualified MCP tool name.",
               },
               args: {
-                type: 'object',
-                description: 'Arguments passed to the tool; shape validated by the tool itself.',
+                type: "object",
+                description: "Arguments passed to the tool; shape validated by the tool itself.",
               },
               dryRun: {
-                type: 'boolean',
+                type: "boolean",
                 description:
-                  'For mutation steps: when true, the executor runs the tool in dry-run mode first. Defaults to true for mutations and is ignored for read-only tools.',
+                  "For mutation steps: when true, the executor runs the tool in dry-run mode first. Defaults to true for mutations and is ignored for read-only tools.",
               },
               annotation: {
-                type: 'string',
-                description: 'Short operator-readable justification for this step.',
+                type: "string",
+                description: "Short operator-readable justification for this step.",
               },
             },
           },
         },
         reasoning: {
-          type: 'string',
+          type: "string",
           description: 'Top-level rationale — the "why" for the whole plan.',
         },
         requiresConfirmation: {
-          type: 'boolean',
+          type: "boolean",
           description:
-            'Default true. Set false only for all-read plans the planner judged safe to auto-execute.',
+            "Default true. Set false only for all-read plans the planner judged safe to auto-execute.",
         },
       },
     },

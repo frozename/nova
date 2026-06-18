@@ -12,11 +12,11 @@ contracts every layer of that stack has to speak.
 
 ## Packages
 
-| Package | Role |
-|---|---|
-| `@nova/contracts` | Canonical AI-provider contracts. Chat, embeddings, models, health, stream, usage schemas. `AiProvider` interface. Factory for OpenAI-compat adapters that covers chat + embeddings + streaming (content + tool-call deltas) out of the box. |
-| `@nova/mcp-shared` | Cross-cutting helpers for MCP servers that expose operator surfaces — audit sink, content envelope helper, usage-record sink + reader. Transport-agnostic; plug into any MCP server. |
-| `@nova/mcp` | Unified operator MCP server — roll-up tools over sibling YAML configs + usage JSONL, plus `nova.operator.plan`, the LLM-backed intent-to-plan translator. Optional; a reference consumer of the two layers above. |
+| Package            | Role                                                                                                                                                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@nova/contracts`  | Canonical AI-provider contracts. Chat, embeddings, models, health, stream, usage schemas. `AiProvider` interface. Factory for OpenAI-compat adapters that covers chat + embeddings + streaming (content + tool-call deltas) out of the box. |
+| `@nova/mcp-shared` | Cross-cutting helpers for MCP servers that expose operator surfaces — audit sink, content envelope helper, usage-record sink + reader. Transport-agnostic; plug into any MCP server.                                                        |
+| `@nova/mcp`        | Unified operator MCP server — roll-up tools over sibling YAML configs + usage JSONL, plus `nova.operator.plan`, the LLM-backed intent-to-plan translator. Optional; a reference consumer of the two layers above.                           |
 
 ## Why
 
@@ -66,7 +66,7 @@ Thin utilities every MCP server wants:
   at `~/.llamactl/mcp/audit/<server>-<YYYY-MM-DD>.jsonl`. Every
   mutation tool records one line per invocation.
 - `toTextContent(payload)` — wraps a JSON payload in the MCP `{
-  content: [{ type: 'text', text }] }` envelope. Keeps the
+content: [{ type: 'text', text }] }` envelope. Keeps the
   JSON.stringify detail out of each tool handler.
 - `appendUsage` / `appendUsageBackground` — UsageRecord writer with
   the same rotation semantics as the audit sink. Fire-and-forget
@@ -84,12 +84,12 @@ Optional but useful: a stdio MCP server that rolls up the YAMLs a
 multi-provider AI deployment typically writes and surfaces them
 through a single MCP endpoint.
 
-| Tool | Purpose |
-|---|---|
-| `nova.ops.overview` | Unified snapshot — agents + gateways + providers + profiles + synthetic models. Reads sibling operator YAMLs when present. |
-| `nova.ops.healthcheck` | GET-probe every gateway + provider `baseUrl`; fails soft per probe. |
-| `nova.ops.cost.snapshot` | Aggregates recorded usage JSONL over the last N days into per-provider + per-(provider, model) roll-ups. |
-| `nova.operator.plan` | Translate a natural-language operator goal into a validated PlanSchema sequence of MCP tool calls. Default executor is a canned stub; bind your own LLM executor for real planning. |
+| Tool                     | Purpose                                                                                                                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nova.ops.overview`      | Unified snapshot — agents + gateways + providers + profiles + synthetic models. Reads sibling operator YAMLs when present.                                                          |
+| `nova.ops.healthcheck`   | GET-probe every gateway + provider `baseUrl`; fails soft per probe.                                                                                                                 |
+| `nova.ops.cost.snapshot` | Aggregates recorded usage JSONL over the last N days into per-provider + per-(provider, model) roll-ups.                                                                            |
+| `nova.operator.plan`     | Translate a natural-language operator goal into a validated PlanSchema sequence of MCP tool calls. Default executor is a canned stub; bind your own LLM executor for real planning. |
 
 ### Planner (`nova.operator.plan`)
 
@@ -141,30 +141,30 @@ bump.
 ### Example — build a provider adapter
 
 ```ts
-import { createOpenAICompatProvider } from '@nova/contracts';
+import { createOpenAICompatProvider } from "@nova/contracts";
 
 const provider = createOpenAICompatProvider({
-  name: 'together',
-  baseUrl: 'https://api.together.xyz/v1',
-  apiKeyRef: '$TOGETHER_API_KEY',
+  name: "together",
+  baseUrl: "https://api.together.xyz/v1",
+  apiKeyRef: "$TOGETHER_API_KEY",
 });
 
 const response = await provider.createResponse({
-  model: 'meta-llama/Llama-3.3-70B-Instruct',
-  messages: [{ role: 'user', content: 'hello' }],
+  model: "meta-llama/Llama-3.3-70B-Instruct",
+  messages: [{ role: "user", content: "hello" }],
 });
 ```
 
 ### Example — log usage
 
 ```ts
-import { appendUsageBackground } from '@nova/mcp-shared';
+import { appendUsageBackground } from "@nova/mcp-shared";
 
 appendUsageBackground({
   record: {
-    provider: 'openai',
-    model: 'gpt-4o-mini',
-    kind: 'chat',
+    provider: "openai",
+    model: "gpt-4o-mini",
+    kind: "chat",
     prompt_tokens: 42,
     completion_tokens: 17,
     total_tokens: 59,
@@ -177,16 +177,22 @@ appendUsageBackground({
 ### Example — MCP server with audit
 
 ```ts
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { appendAudit, toTextContent } from '@nova/mcp-shared';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { appendAudit, toTextContent } from "@nova/mcp-shared";
 
-const server = new McpServer({ name: 'my-service', version: '0.0.0' });
+const server = new McpServer({ name: "my-service", version: "0.0.0" });
 
-server.registerTool('my.service.status', { /* schema */ }, async (input) => {
-  const status = await checkStatus();
-  appendAudit({ server: 'my-service', tool: 'my.service.status', input });
-  return toTextContent(status);
-});
+server.registerTool(
+  "my.service.status",
+  {
+    /* schema */
+  },
+  async (input) => {
+    const status = await checkStatus();
+    appendAudit({ server: "my-service", tool: "my.service.status", input });
+    return toTextContent(status);
+  },
+);
 ```
 
 ## Editing Nova

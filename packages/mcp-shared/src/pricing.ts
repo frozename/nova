@@ -1,14 +1,14 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import {
   ProviderPricingSchema,
   type ModelPricing,
   type PricingCatalog,
   type ProviderPricing,
   type UsageRecord,
-} from '@nova/contracts';
+} from "@nova/contracts";
 
 /**
  * File-backed pricing catalog + cost estimator.
@@ -30,14 +30,11 @@ import {
  * field wins, the filename is a human convenience.
  */
 
-export function defaultPricingDir(
-  env: NodeJS.ProcessEnv = process.env,
-): string {
+export function defaultPricingDir(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.LLAMACTL_PRICING_DIR?.trim();
   if (override) return override;
-  const base =
-    env.DEV_STORAGE?.trim() || join(homedir(), '.llamactl');
-  return join(base, 'pricing');
+  const base = env.DEV_STORAGE?.trim() || join(homedir(), ".llamactl");
+  return join(base, "pricing");
 }
 
 export interface LoadPricingOptions {
@@ -50,20 +47,18 @@ export interface LoadPricingResult {
   malformedFiles: Array<{ path: string; message: string }>;
 }
 
-export function loadPricing(
-  opts: LoadPricingOptions = {},
-): LoadPricingResult {
+export function loadPricing(opts: LoadPricingOptions = {}): LoadPricingResult {
   const dir = opts.dir ?? defaultPricingDir();
   const catalog: PricingCatalog = new Map();
   const filesLoaded: string[] = [];
-  const malformedFiles: LoadPricingResult['malformedFiles'] = [];
+  const malformedFiles: LoadPricingResult["malformedFiles"] = [];
   if (!existsSync(dir)) return { catalog, filesLoaded, malformedFiles };
   for (const name of readdirSync(dir).sort()) {
-    if (!name.endsWith('.yaml') && !name.endsWith('.yml')) continue;
+    if (!name.endsWith(".yaml") && !name.endsWith(".yml")) continue;
     const path = join(dir, name);
     let raw: string;
     try {
-      raw = readFileSync(path, 'utf8');
+      raw = readFileSync(path, "utf8");
     } catch (err) {
       malformedFiles.push({ path, message: (err as Error).message });
       continue;
@@ -79,9 +74,7 @@ export function loadPricing(
     if (!result.success) {
       malformedFiles.push({
         path,
-        message: result.error.issues
-          .map((i) => `${i.path.join('.')}: ${i.message}`)
-          .join('; '),
+        message: result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
       });
       continue;
     }
@@ -97,7 +90,7 @@ export function loadPricing(
  * streams; embedding kind bills only the prompt side.
  */
 export function estimateCostUsd(
-  record: Pick<UsageRecord, 'provider' | 'model' | 'kind' | 'prompt_tokens' | 'completion_tokens'>,
+  record: Pick<UsageRecord, "provider" | "model" | "kind" | "prompt_tokens" | "completion_tokens">,
   catalog: PricingCatalog,
 ): number | undefined {
   const providerPricing = catalog.get(record.provider);
@@ -113,8 +106,7 @@ export function computeCost(
   completionTokens: number,
 ): number {
   const promptCost = (promptTokens / 1000) * pricing.prompt_per_1k_tokens_usd;
-  const completionCost =
-    (completionTokens / 1000) * pricing.completion_per_1k_tokens_usd;
+  const completionCost = (completionTokens / 1000) * pricing.completion_per_1k_tokens_usd;
   // Guard against -0.
   const total = promptCost + completionCost;
   return total === 0 ? 0 : total;

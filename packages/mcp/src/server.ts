@@ -1,17 +1,17 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { existsSync, readFileSync } from 'node:fs';
-import { parse as parseYaml } from 'yaml';
-import { z } from 'zod';
-import { appendAudit, toTextContent } from '@nova/mcp-shared';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { existsSync, readFileSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
+import { z } from "zod";
+import { appendAudit, toTextContent } from "@nova/mcp-shared";
 import {
   defaultEmbersynthConfigPath,
   defaultKubeconfigPath,
   defaultSiriusProvidersPath,
-} from './paths.js';
-import { runPlanner, type PlannerExecutor } from './planner/executor.js';
-import type { AllowlistConfig } from './planner/allowlist.js';
-import type { PlannerToolDescriptor } from './planner/schema.js';
-import { computeCostSnapshot } from './cost/snapshot.js';
+} from "./paths.js";
+import { runPlanner, type PlannerExecutor } from "./planner/executor.js";
+import type { AllowlistConfig } from "./planner/allowlist.js";
+import type { PlannerToolDescriptor } from "./planner/schema.js";
+import { computeCostSnapshot } from "./cost/snapshot.js";
 
 /**
  * `@nova/mcp` — unified MCP facade across the llamactl family.
@@ -41,12 +41,12 @@ import { computeCostSnapshot } from './cost/snapshot.js';
  *     N.4.3 as a new executor implementation.
  */
 
-const SERVER_SLUG = 'nova';
+const SERVER_SLUG = "nova";
 
 function readYamlIfExists(path: string): unknown | null {
   if (!existsSync(path)) return null;
   try {
-    return parseYaml(readFileSync(path, 'utf8'));
+    return parseYaml(readFileSync(path, "utf8"));
   } catch {
     return null;
   }
@@ -55,7 +55,7 @@ function readYamlIfExists(path: string): unknown | null {
 interface KubeconfigNode {
   name: string;
   endpoint?: string;
-  kind?: 'agent' | 'gateway' | 'provider' | 'cloud';
+  kind?: "agent" | "gateway" | "provider" | "cloud";
   cloud?: { provider: string; baseUrl: string };
   provider?: { gateway: string; providerName: string };
 }
@@ -90,15 +90,18 @@ interface EmbersynthShape {
   syntheticModels?: Record<string, string>;
 }
 
-function resolveKind(n: KubeconfigNode): 'agent' | 'gateway' | 'provider' {
-  if (n.kind === 'gateway' || n.kind === 'cloud') return 'gateway';
-  if (n.kind === 'agent' || n.kind === 'provider') return n.kind;
-  if (n.provider) return 'provider';
-  if (n.cloud) return 'gateway';
-  return 'agent';
+function resolveKind(n: KubeconfigNode): "agent" | "gateway" | "provider" {
+  if (n.kind === "gateway" || n.kind === "cloud") return "gateway";
+  if (n.kind === "agent" || n.kind === "provider") return n.kind;
+  if (n.provider) return "provider";
+  if (n.cloud) return "gateway";
+  return "agent";
 }
 
-async function probeEndpoint(url: string, timeoutMs = 1500): Promise<{ ok: boolean; status: number; error?: string }> {
+async function probeEndpoint(
+  url: string,
+  timeoutMs = 1500,
+): Promise<{ ok: boolean; status: number; error?: string }> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
@@ -130,19 +133,19 @@ export interface BuildNovaMcpServerOptions {
 
 export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer {
   const server = new McpServer({
-    name: opts?.name ?? 'nova',
-    version: opts?.version ?? '0.0.0',
+    name: opts?.name ?? "nova",
+    version: opts?.version ?? "0.0.0",
   });
   const plannerTools = opts?.plannerTools ?? [];
   const plannerAllowlist = opts?.plannerAllowlist;
   const plannerExecutor = opts?.plannerExecutor;
 
   server.registerTool(
-    'nova.ops.overview',
+    "nova.ops.overview",
     {
-      title: 'Unified operator snapshot',
+      title: "Unified operator snapshot",
       description:
-        'Read the three operator YAMLs (kubeconfig, sirius-providers.yaml, embersynth.yaml) that llamactl authors and return a single normalized view: agents + gateways + providers + profiles + synthetic models. Missing files surface as empty sections, not errors.',
+        "Read the three operator YAMLs (kubeconfig, sirius-providers.yaml, embersynth.yaml) that llamactl authors and return a single normalized view: agents + gateways + providers + profiles + synthetic models. Missing files surface as empty sections, not errors.",
       inputSchema: {
         kubeconfigPath: z.string().optional(),
         siriusProvidersPath: z.string().optional(),
@@ -161,25 +164,30 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
       const ctx = kube?.contexts?.find((c) => c.name === kube.currentContext);
       const cluster = kube?.clusters?.find((c) => c.name === ctx?.cluster);
       const kubeNodes = cluster?.nodes ?? [];
-      const agents = kubeNodes.filter((n) => resolveKind(n) === 'agent').map((n) => ({
-        name: n.name,
-        endpoint: n.endpoint ?? null,
-      }));
-      const gateways = kubeNodes.filter((n) => resolveKind(n) === 'gateway').map((n) => ({
-        name: n.name,
-        provider: n.cloud?.provider ?? null,
-        baseUrl: n.cloud?.baseUrl ?? null,
-      }));
+      const agents = kubeNodes
+        .filter((n) => resolveKind(n) === "agent")
+        .map((n) => ({
+          name: n.name,
+          endpoint: n.endpoint ?? null,
+        }));
+      const gateways = kubeNodes
+        .filter((n) => resolveKind(n) === "gateway")
+        .map((n) => ({
+          name: n.name,
+          provider: n.cloud?.provider ?? null,
+          baseUrl: n.cloud?.baseUrl ?? null,
+        }));
       const siriusProviders = (sirius?.providers ?? []).map((p) => ({
         name: p.name,
         kind: p.kind,
         baseUrl: p.baseUrl ?? null,
         displayName: p.displayName ?? null,
       }));
-      const embersynthProfiles = emb?.profiles?.map((p) => ({ id: p.id, label: p.label ?? p.id })) ?? [];
+      const embersynthProfiles =
+        emb?.profiles?.map((p) => ({ id: p.id, label: p.label ?? p.id })) ?? [];
       const syntheticModels = emb?.syntheticModels ?? {};
 
-      appendAudit({ server: SERVER_SLUG, tool: 'nova.ops.overview', input });
+      appendAudit({ server: SERVER_SLUG, tool: "nova.ops.overview", input });
       return toTextContent({
         paths: {
           kubeconfig: existsSync(kubePath) ? kubePath : null,
@@ -198,11 +206,11 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
   );
 
   server.registerTool(
-    'nova.ops.healthcheck',
+    "nova.ops.healthcheck",
     {
-      title: 'Gateway reachability probe',
+      title: "Gateway reachability probe",
       description:
-        'Issue a GET against each gateway node\'s baseUrl and each sirius provider\'s baseUrl and report reachability. Fails soft per probe so a single unreachable endpoint does not tank the report.',
+        "Issue a GET against each gateway node's baseUrl and each sirius provider's baseUrl and report reachability. Fails soft per probe so a single unreachable endpoint does not tank the report.",
       inputSchema: {
         kubeconfigPath: z.string().optional(),
         siriusProvidersPath: z.string().optional(),
@@ -219,7 +227,7 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
       const ctx = kube?.contexts?.find((c) => c.name === kube.currentContext);
       const cluster = kube?.clusters?.find((c) => c.name === ctx?.cluster);
       const gateways = (cluster?.nodes ?? [])
-        .filter((n) => resolveKind(n) === 'gateway' && n.cloud?.baseUrl)
+        .filter((n) => resolveKind(n) === "gateway" && n.cloud?.baseUrl)
         .map((n) => ({ name: n.name, baseUrl: n.cloud!.baseUrl }));
 
       const gatewayProbes = await Promise.all(
@@ -231,7 +239,7 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
       );
       const providerProbes = await Promise.all(
         (sirius?.providers ?? [])
-          .filter((p) => typeof p.baseUrl === 'string' && p.baseUrl.length > 0)
+          .filter((p) => typeof p.baseUrl === "string" && p.baseUrl.length > 0)
           .map(async (p) => ({
             name: p.name,
             kind: p.kind,
@@ -240,7 +248,7 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
           })),
       );
 
-      appendAudit({ server: SERVER_SLUG, tool: 'nova.ops.healthcheck', input });
+      appendAudit({ server: SERVER_SLUG, tool: "nova.ops.healthcheck", input });
       return toTextContent({
         timeoutMs,
         gateways: gatewayProbes,
@@ -250,11 +258,11 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
   );
 
   server.registerTool(
-    'nova.ops.cost.snapshot',
+    "nova.ops.cost.snapshot",
     {
-      title: 'Cost snapshot with optional dollar estimate',
+      title: "Cost snapshot with optional dollar estimate",
       description:
-        'Aggregate recorded usage JSONL under ~/.llamactl/usage/ (or $LLAMACTL_USAGE_DIR) for the last `days` (default 7, max 90) into roll-ups per provider and per provider/model. When pricing YAMLs exist under ~/.llamactl/pricing/ (or $LLAMACTL_PRICING_DIR / override via pricingDir), each record is joined against its (provider, model) rate and the estimated_cost_usd rolls up into group + grand totals. Missing pricing for a given (provider, model) leaves that group\'s cost blank and increments recordsMissingPricing; the snapshot never fails on missing pricing.',
+        "Aggregate recorded usage JSONL under ~/.llamactl/usage/ (or $LLAMACTL_USAGE_DIR) for the last `days` (default 7, max 90) into roll-ups per provider and per provider/model. When pricing YAMLs exist under ~/.llamactl/pricing/ (or $LLAMACTL_PRICING_DIR / override via pricingDir), each record is joined against its (provider, model) rate and the estimated_cost_usd rolls up into group + grand totals. Missing pricing for a given (provider, model) leaves that group's cost blank and increments recordsMissingPricing; the snapshot never fails on missing pricing.",
       inputSchema: {
         days: z.number().int().positive().max(90).default(7),
         dir: z.string().optional(),
@@ -275,7 +283,7 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
       const snapshot = computeCostSnapshot(snapshotOpts);
       appendAudit({
         server: SERVER_SLUG,
-        tool: 'nova.ops.cost.snapshot',
+        tool: "nova.ops.cost.snapshot",
         input: {
           days: input.days ?? 7,
           dir: input.dir ?? null,
@@ -295,39 +303,39 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
   );
 
   server.registerTool(
-    'nova.operator.plan',
+    "nova.operator.plan",
     {
-      title: 'Translate an operator goal into an MCP tool-call plan',
+      title: "Translate an operator goal into an MCP tool-call plan",
       description:
-        'Given a natural-language operational goal, produces a short sequence of MCP tool calls that, when executed, achieve the goal. The returned plan is validated against PlanSchema (max 20 steps, required per-step annotations). Tool allowlist filters which MCP tools the planner is allowed to propose. Default executor is a canned stub until an LLM-backed executor is bound (N.4.3); the wire shape is identical across executors.',
+        "Given a natural-language operational goal, produces a short sequence of MCP tool calls that, when executed, achieve the goal. The returned plan is validated against PlanSchema (max 20 steps, required per-step annotations). Tool allowlist filters which MCP tools the planner is allowed to propose. Default executor is a canned stub until an LLM-backed executor is bound (N.4.3); the wire shape is identical across executors.",
       inputSchema: {
-        goal: z.string().min(1, 'goal must be non-empty'),
+        goal: z.string().min(1, "goal must be non-empty"),
         context: z
           .string()
-          .default('')
-          .describe('Compact fleet snapshot string; rendered verbatim under FLEET CONTEXT.'),
+          .default("")
+          .describe("Compact fleet snapshot string; rendered verbatim under FLEET CONTEXT."),
       },
     },
     async (input) => {
       const result = await runPlanner({
         goal: input.goal,
-        context: input.context ?? '',
+        context: input.context ?? "",
         tools: plannerTools,
         ...(plannerAllowlist ? { allowlist: plannerAllowlist } : {}),
         ...(plannerExecutor ? { executor: plannerExecutor } : {}),
       });
       appendAudit({
         server: SERVER_SLUG,
-        tool: 'nova.operator.plan',
-        input: { goal: input.goal, contextLen: (input.context ?? '').length },
+        tool: "nova.operator.plan",
+        input: { goal: input.goal, contextLen: (input.context ?? "").length },
         result: result.ok
           ? {
-              outcome: 'ok',
+              outcome: "ok",
               executor: result.executor,
               stepCount: result.plan.steps.length,
             }
           : {
-              outcome: 'failed',
+              outcome: "failed",
               reason: result.reason,
               executor: result.executor ?? null,
             },

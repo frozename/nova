@@ -1,8 +1,8 @@
-import type { UnifiedAiRequest, UnifiedAiResponse } from './schemas/chat.js';
-import type { UnifiedStreamEvent } from './schemas/stream.js';
-import type { UnifiedEmbeddingRequest, UnifiedEmbeddingResponse } from './schemas/embeddings.js';
-import type { ModelInfo } from './schemas/models.js';
-import type { ProviderHealth } from './schemas/health.js';
+import type { UnifiedAiRequest, UnifiedAiResponse } from "./schemas/chat.js";
+import type { UnifiedStreamEvent } from "./schemas/stream.js";
+import type { UnifiedEmbeddingRequest, UnifiedEmbeddingResponse } from "./schemas/embeddings.js";
+import type { ModelInfo } from "./schemas/models.js";
+import type { ProviderHealth } from "./schemas/health.js";
 import type {
   DeleteRequest,
   DeleteResponse,
@@ -11,7 +11,7 @@ import type {
   SearchResponse,
   StoreRequest,
   StoreResponse,
-} from './schemas/retrieval.js';
+} from "./schemas/retrieval.js";
 
 /**
  * Canonical AI-provider adapter. Every backend — local llama.cpp
@@ -47,9 +47,7 @@ export interface AiProvider {
     signal?: AbortSignal,
   ): AsyncIterable<UnifiedStreamEvent>;
 
-  createEmbeddings?(
-    request: UnifiedEmbeddingRequest,
-  ): Promise<UnifiedEmbeddingResponse>;
+  createEmbeddings?(request: UnifiedEmbeddingRequest): Promise<UnifiedEmbeddingResponse>;
 
   listModels?(): Promise<ModelInfo[]>;
 
@@ -107,7 +105,7 @@ export interface ProviderFactoryInput {
   placeholder?: string;
   /** `'secret'` hides the value in UIs and logs. `'url'` hints at a
    *  URL picker / validator. */
-  kind: 'text' | 'secret' | 'url';
+  kind: "text" | "secret" | "url";
   required?: boolean;
   /** Default value for non-required fields (e.g. `https://api.openai.com/v1`). */
   default?: string;

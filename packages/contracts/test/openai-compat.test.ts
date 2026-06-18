@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createOpenAICompatProvider } from '../src/providers/openai-compat.js';
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createOpenAICompatProvider } from "../src/providers/openai-compat.js";
 
 /**
  * E2E test for the OpenAI-compatible adapter. Stands up a stub
@@ -15,18 +15,18 @@ let upstream: ReturnType<typeof Bun.serve> | null = null;
 beforeAll(() => {
   upstream = Bun.serve({
     port: UPSTREAM_PORT,
-    hostname: '127.0.0.1',
+    hostname: "127.0.0.1",
     async fetch(req) {
       const url = new URL(req.url);
-      if (url.pathname === '/v1/models' && req.method === 'GET') {
+      if (url.pathname === "/v1/models" && req.method === "GET") {
         return Response.json({
           data: [
-            { id: 'gpt-4o-mini', created: 1700000000, owned_by: 'openai' },
-            { id: 'gpt-4o', created: 1700000000, owned_by: 'openai' },
+            { id: "gpt-4o-mini", created: 1700000000, owned_by: "openai" },
+            { id: "gpt-4o", created: 1700000000, owned_by: "openai" },
           ],
         });
       }
-      if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
+      if (url.pathname === "/v1/chat/completions" && req.method === "POST") {
         const body = (await req.json()) as {
           stream?: boolean;
           model: string;
@@ -79,43 +79,43 @@ beforeAll(() => {
                   ),
                 );
               }
-              controller.enqueue(enc.encode('data: [DONE]\n\n'));
+              controller.enqueue(enc.encode("data: [DONE]\n\n"));
               controller.close();
             },
           });
           return new Response(stream, {
             status: 200,
-            headers: { 'content-type': 'text/event-stream' },
+            headers: { "content-type": "text/event-stream" },
           });
         }
         return Response.json({
-          id: 'chatcmpl-stub',
-          object: 'chat.completion',
+          id: "chatcmpl-stub",
+          object: "chat.completion",
           model: body.model,
           created: 1,
           choices: [
             {
               index: 0,
-              message: { role: 'assistant', content: 'hello' },
-              finish_reason: 'stop',
+              message: { role: "assistant", content: "hello" },
+              finish_reason: "stop",
             },
           ],
           usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
         });
       }
-      if (url.pathname === '/health' && req.method === 'GET') {
-        return new Response('ok', { status: 200 });
+      if (url.pathname === "/health" && req.method === "GET") {
+        return new Response("ok", { status: 200 });
       }
-      if (url.pathname === '/v1/embeddings' && req.method === 'POST') {
+      if (url.pathname === "/v1/embeddings" && req.method === "POST") {
         const body = (await req.json()) as { model: string; input: string };
         return Response.json({
-          object: 'list',
-          data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2, 0.3] }],
+          object: "list",
+          data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2, 0.3] }],
           model: body.model,
           usage: { prompt_tokens: body.input.length, total_tokens: body.input.length },
         });
       }
-      return new Response('not found', { status: 404 });
+      return new Response("not found", { status: 404 });
     },
   });
 });
@@ -126,115 +126,115 @@ afterAll(() => {
 
 function makeProvider(): ReturnType<typeof createOpenAICompatProvider> {
   return createOpenAICompatProvider({
-    name: 'stub',
-    displayName: 'Stub',
+    name: "stub",
+    displayName: "Stub",
     baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
-    apiKey: 'sk-test',
+    apiKey: "sk-test",
   });
 }
 
-describe('openai-compat provider', () => {
-  test('listModels round-trips canonical ModelInfo', async () => {
+describe("openai-compat provider", () => {
+  test("listModels round-trips canonical ModelInfo", async () => {
     const p = makeProvider();
     const models = await p.listModels?.();
     expect(models).toHaveLength(2);
-    expect(models?.[0]?.id).toBe('gpt-4o-mini');
-    expect(models?.[0]?.object).toBe('model');
-    expect(models?.[0]?.capabilities).toContain('chat');
+    expect(models?.[0]?.id).toBe("gpt-4o-mini");
+    expect(models?.[0]?.object).toBe("model");
+    expect(models?.[0]?.capabilities).toContain("chat");
   });
 
-  test('createResponse includes latency + provider annotation', async () => {
+  test("createResponse includes latency + provider annotation", async () => {
     const p = makeProvider();
     const res = await p.createResponse({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: 'hi' }],
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "hi" }],
     });
-    expect(res.choices[0]!.message.content).toBe('hello');
-    expect(res.provider).toBe('stub');
+    expect(res.choices[0]!.message.content).toBe("hello");
+    expect(res.provider).toBe("stub");
     expect(res.latencyMs).toBeGreaterThanOrEqual(0);
     expect(res.usage?.total_tokens).toBe(3);
   });
 
-  test('streamResponse yields chunks then a done event', async () => {
+  test("streamResponse yields chunks then a done event", async () => {
     const p = makeProvider();
     const events: unknown[] = [];
     for await (const ev of p.streamResponse?.({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: 'hi' }],
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "hi" }],
     }) ?? []) {
       events.push(ev);
     }
     const chunks = events.filter(
-      (e): e is { type: 'chunk'; chunk: { choices: [{ delta: { content?: string } }] } } =>
-        (e as { type?: string }).type === 'chunk',
+      (e): e is { type: "chunk"; chunk: { choices: [{ delta: { content?: string } }] } } =>
+        (e as { type?: string }).type === "chunk",
     );
     expect(chunks.length).toBeGreaterThanOrEqual(2);
-    const joined = chunks
-      .map((c) => c.chunk.choices[0]?.delta.content ?? '')
-      .join('');
-    expect(joined).toBe('hello');
+    const joined = chunks.map((c) => c.chunk.choices[0]?.delta.content ?? "").join("");
+    expect(joined).toBe("hello");
     const lastEvent = events[events.length - 1] as { type: string };
-    expect(lastEvent.type).toBe('done');
+    expect(lastEvent.type).toBe("done");
   });
 
-  test('createEmbeddings passes input + annotates provider', async () => {
+  test("createEmbeddings passes input + annotates provider", async () => {
     const p = makeProvider();
     const res = await p.createEmbeddings?.({
-      model: 'text-embedding-3-small',
-      input: 'abc',
+      model: "text-embedding-3-small",
+      input: "abc",
     });
     expect(res?.data[0]?.embedding).toEqual([0.1, 0.2, 0.3]);
-    expect(res?.provider).toBe('stub');
+    expect(res?.provider).toBe("stub");
   });
 
-  test('healthCheck reports healthy against a live upstream', async () => {
+  test("healthCheck reports healthy against a live upstream", async () => {
     const p = makeProvider();
     const h = await p.healthCheck?.();
-    expect(h?.state).toBe('healthy');
+    expect(h?.state).toBe("healthy");
     expect(h?.latencyMs).toBeGreaterThanOrEqual(0);
   });
 
-  test('healthCheck reports unhealthy when upstream is down', async () => {
+  test("healthCheck reports unhealthy when upstream is down", async () => {
     const bad = createOpenAICompatProvider({
-      name: 'dead',
-      baseUrl: 'http://127.0.0.1:1/v1',
-      apiKey: 'x',
+      name: "dead",
+      baseUrl: "http://127.0.0.1:1/v1",
+      apiKey: "x",
     });
     const h = await bad.healthCheck?.();
-    expect(h?.state).toBe('unhealthy');
+    expect(h?.state).toBe("unhealthy");
     expect(h?.error).toBeTruthy();
   });
 
-  test('healthCheck honors healthPath for self-hosted /health endpoints', async () => {
+  test("healthCheck honors healthPath for self-hosted /health endpoints", async () => {
     const p = createOpenAICompatProvider({
-      name: 'local',
+      name: "local",
       // Root baseUrl — /health sits outside /v1 on self-hosted gateways.
       baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}`,
-      apiKey: 'x',
-      healthPath: '/health',
+      apiKey: "x",
+      healthPath: "/health",
     });
     const h = await p.healthCheck?.();
-    expect(h?.state).toBe('healthy');
+    expect(h?.state).toBe("healthy");
   });
 
-  test('streamResponse preserves tool_call deltas', async () => {
+  test("streamResponse preserves tool_call deltas", async () => {
     const p = makeProvider();
     const events: unknown[] = [];
     for await (const ev of p.streamResponse?.({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: 'call the search tool' }],
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "call the search tool" }],
       tools: [
         {
-          type: 'function',
-          function: { name: 'search', description: 'search the web', parameters: {} },
+          type: "function",
+          function: { name: "search", description: "search the web", parameters: {} },
         },
       ],
     }) ?? []) {
       events.push(ev);
     }
     const chunks = events.filter(
-      (e): e is {
-        type: 'chunk';
+      (
+        e,
+      ): e is {
+        type: "chunk";
         chunk: {
           choices: Array<{
             delta: {
@@ -246,87 +246,87 @@ describe('openai-compat provider', () => {
             };
           }>;
         };
-      } => (e as { type?: string }).type === 'chunk',
+      } => (e as { type?: string }).type === "chunk",
     );
     // Every chunk with tool_calls preserves the `index` field.
-    const allToolCallFrames = chunks.flatMap(
-      (c) => c.chunk.choices[0]?.delta.tool_calls ?? [],
-    );
+    const allToolCallFrames = chunks.flatMap((c) => c.chunk.choices[0]?.delta.tool_calls ?? []);
     expect(allToolCallFrames.length).toBeGreaterThanOrEqual(2);
     // First frame carries the id + name, subsequent frames carry arguments.
-    expect(allToolCallFrames[0]?.id).toBe('call_1');
-    expect(allToolCallFrames[0]?.function?.name).toBe('search');
-    const joinedArgs = allToolCallFrames
-      .map((f) => f.function?.arguments ?? '')
-      .join('');
-    expect(joinedArgs).toContain('hi');
+    expect(allToolCallFrames[0]?.id).toBe("call_1");
+    expect(allToolCallFrames[0]?.function?.name).toBe("search");
+    const joinedArgs = allToolCallFrames.map((f) => f.function?.arguments ?? "").join("");
+    expect(joinedArgs).toContain("hi");
     const lastEvent = events[events.length - 1] as { type: string; finish_reason?: string };
-    expect(lastEvent.type).toBe('done');
-    expect(lastEvent.finish_reason).toBe('tool_calls');
+    expect(lastEvent.type).toBe("done");
+    expect(lastEvent.finish_reason).toBe("tool_calls");
   });
 });
 
-describe('openai-compat provider — onUsage callback', () => {
-  test('fires on non-streaming chat with provider + model + token counts', async () => {
+describe("openai-compat provider — onUsage callback", () => {
+  test("fires on non-streaming chat with provider + model + token counts", async () => {
     const snapshots: Array<Record<string, unknown>> = [];
     const p = createOpenAICompatProvider({
-      name: 'stub',
+      name: "stub",
       baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
-      apiKey: 'sk-test',
-      onUsage: (s) => { snapshots.push({ ...s }); },
+      apiKey: "sk-test",
+      onUsage: (s) => {
+        snapshots.push({ ...s });
+      },
     });
     await p.createResponse({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: 'hi' }],
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "hi" }],
     });
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]!.provider).toBe('stub');
-    expect(snapshots[0]!.model).toBe('gpt-4o-mini');
-    expect(snapshots[0]!.kind).toBe('chat');
+    expect(snapshots[0]!.provider).toBe("stub");
+    expect(snapshots[0]!.model).toBe("gpt-4o-mini");
+    expect(snapshots[0]!.kind).toBe("chat");
     expect(snapshots[0]!.prompt_tokens).toBe(2);
     expect(snapshots[0]!.completion_tokens).toBe(1);
     expect(snapshots[0]!.total_tokens).toBe(3);
-    expect(typeof snapshots[0]!.latency_ms).toBe('number');
+    expect(typeof snapshots[0]!.latency_ms).toBe("number");
   });
 
-  test('does not fire when the provider omits `usage`', async () => {
+  test("does not fire when the provider omits `usage`", async () => {
     const noUsagePort = UPSTREAM_PORT + 1;
     const server = Bun.serve({
       port: noUsagePort,
-      hostname: '127.0.0.1',
+      hostname: "127.0.0.1",
       async fetch(req) {
         const url = new URL(req.url);
-        if (url.pathname === '/v1/chat/completions') {
+        if (url.pathname === "/v1/chat/completions") {
           const body = (await req.json()) as { model: string };
           return Response.json({
-            id: 'x',
-            object: 'chat.completion',
+            id: "x",
+            object: "chat.completion",
             model: body.model,
             created: 1,
             choices: [
               {
                 index: 0,
-                message: { role: 'assistant', content: 'ok' },
-                finish_reason: 'stop',
+                message: { role: "assistant", content: "ok" },
+                finish_reason: "stop",
               },
             ],
             // usage deliberately omitted
           });
         }
-        return new Response('', { status: 404 });
+        return new Response("", { status: 404 });
       },
     });
     try {
       const snapshots: Array<Record<string, unknown>> = [];
       const p = createOpenAICompatProvider({
-        name: 'no-usage',
+        name: "no-usage",
         baseUrl: `http://127.0.0.1:${noUsagePort}/v1`,
-        apiKey: 'sk',
-        onUsage: (s) => { snapshots.push({ ...s }); },
+        apiKey: "sk",
+        onUsage: (s) => {
+          snapshots.push({ ...s });
+        },
       });
       await p.createResponse({
-        model: 'm',
-        messages: [{ role: 'user', content: 'x' }],
+        model: "m",
+        messages: [{ role: "user", content: "x" }],
       });
       expect(snapshots).toHaveLength(0);
     } finally {
@@ -334,49 +334,55 @@ describe('openai-compat provider — onUsage callback', () => {
     }
   });
 
-  test('onUsage throw does not bleed into the response path', async () => {
+  test("onUsage throw does not bleed into the response path", async () => {
     const p = createOpenAICompatProvider({
-      name: 'stub',
+      name: "stub",
       baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
-      apiKey: 'sk-test',
-      onUsage: () => { throw new Error('logger boom'); },
+      apiKey: "sk-test",
+      onUsage: () => {
+        throw new Error("logger boom");
+      },
     });
     const res = await p.createResponse({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: 'hi' }],
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "hi" }],
     });
-    expect(res.choices[0]!.message.content).toBe('hello');
+    expect(res.choices[0]!.message.content).toBe("hello");
   });
 
-  test('fires on embeddings with kind: embedding + completion_tokens zeroed', async () => {
+  test("fires on embeddings with kind: embedding + completion_tokens zeroed", async () => {
     const snapshots: Array<Record<string, unknown>> = [];
     const p = createOpenAICompatProvider({
-      name: 'stub',
+      name: "stub",
       baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
-      apiKey: 'sk-test',
-      onUsage: (s) => { snapshots.push({ ...s }); },
+      apiKey: "sk-test",
+      onUsage: (s) => {
+        snapshots.push({ ...s });
+      },
     });
     await p.createEmbeddings?.({
-      model: 'text-embedding-3-small',
-      input: 'abc',
+      model: "text-embedding-3-small",
+      input: "abc",
     });
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]!.kind).toBe('embedding');
+    expect(snapshots[0]!.kind).toBe("embedding");
     expect(snapshots[0]!.completion_tokens).toBe(0);
     expect(snapshots[0]!.prompt_tokens).toBe(3); // input length
   });
 
-  test('fires on streaming when upstream emits a usage frame', async () => {
+  test("fires on streaming when upstream emits a usage frame", async () => {
     const snapshots: Array<Record<string, unknown>> = [];
     const p = createOpenAICompatProvider({
-      name: 'stub',
+      name: "stub",
       baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
-      apiKey: 'sk-test',
-      onUsage: (s) => { snapshots.push({ ...s }); },
+      apiKey: "sk-test",
+      onUsage: (s) => {
+        snapshots.push({ ...s });
+      },
     });
     const request = {
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user' as const, content: 'hi' }],
+      model: "gpt-4o-mini",
+      messages: [{ role: "user" as const, content: "hi" }],
       providerOptions: { stream_options: { include_usage: true } },
     };
     for await (const _ev of p.streamResponse?.(request) ?? []) {
@@ -389,17 +395,19 @@ describe('openai-compat provider — onUsage callback', () => {
     expect(snapshots[0]!.total_tokens).toBe(6);
   });
 
-  test('does NOT fire on streaming when upstream omits the usage frame', async () => {
+  test("does NOT fire on streaming when upstream omits the usage frame", async () => {
     const snapshots: Array<Record<string, unknown>> = [];
     const p = createOpenAICompatProvider({
-      name: 'stub',
+      name: "stub",
       baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
-      apiKey: 'sk-test',
-      onUsage: (s) => { snapshots.push({ ...s }); },
+      apiKey: "sk-test",
+      onUsage: (s) => {
+        snapshots.push({ ...s });
+      },
     });
     for await (const _ev of p.streamResponse?.({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: 'hi' }],
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "hi" }],
     }) ?? []) {
       void _ev;
     }

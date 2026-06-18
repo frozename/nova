@@ -87,12 +87,16 @@ committing.
 - `bun:test` throughout. `describe` + `test`, `expect(...).to*`.
 - Temp dirs for file I/O:
   ```ts
-  import { mkdtempSync, rmSync } from 'node:fs';
-  import { tmpdir } from 'node:os';
-  import { join } from 'node:path';
-  let dir = '';
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'nova-xyz-')); });
-  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+  import { mkdtempSync, rmSync } from "node:fs";
+  import { tmpdir } from "node:os";
+  import { join } from "node:path";
+  let dir = "";
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nova-xyz-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
   ```
 - MCP integration tests use `InMemoryTransport.createLinkedPair()`;
   no subprocess needed.

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Unified usage record. Every AI call in the llamactl family —
@@ -20,7 +20,7 @@ import { z } from 'zod';
  * retroactively.
  */
 
-export const UsageKindSchema = z.enum(['chat', 'embedding', 'responses']);
+export const UsageKindSchema = z.enum(["chat", "embedding", "responses"]);
 export type UsageKind = z.infer<typeof UsageKindSchema>;
 
 export const UsageRecordSchema = z.object({

@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { defaultUsageDir } from './usage.js';
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { defaultUsageDir } from "./usage.js";
 
 /**
  * Batch reader for the JSONL usage sink written by `appendUsage()`.
@@ -57,7 +57,7 @@ export function readUsage(opts: UsageReadOptions = {}): UsageReadResult {
   const sinceMs = opts.since ? Date.parse(opts.since) : -Infinity;
   const untilMs = opts.until ? Date.parse(opts.until) : Infinity;
   for (const name of readdirSync(dir).sort()) {
-    if (!name.endsWith('.jsonl')) continue;
+    if (!name.endsWith(".jsonl")) continue;
     const parsed = parseFilename(name);
     if (!parsed) continue;
     if (opts.provider && parsed.provider !== opts.provider) continue;
@@ -70,8 +70,8 @@ export function readUsage(opts: UsageReadOptions = {}): UsageReadResult {
     if (dayStartMs >= untilMs) continue;
     const path = join(dir, name);
     result.filesScanned.push(path);
-    const body = readFileSync(path, 'utf8');
-    for (const line of body.split('\n')) {
+    const body = readFileSync(path, "utf8");
+    for (const line of body.split("\n")) {
       if (!line) continue;
       let rec: Record<string, unknown>;
       try {
@@ -81,7 +81,7 @@ export function readUsage(opts: UsageReadOptions = {}): UsageReadResult {
         continue;
       }
       const ts = rec.ts;
-      if (typeof ts === 'string') {
+      if (typeof ts === "string") {
         const ms = Date.parse(ts);
         if (!Number.isNaN(ms)) {
           if (ms < sinceMs || ms >= untilMs) continue;

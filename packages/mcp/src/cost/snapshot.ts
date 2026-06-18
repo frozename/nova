@@ -4,8 +4,8 @@ import {
   readUsage,
   type LoadPricingResult,
   type UsageReadOptions,
-} from '@nova/mcp-shared';
-import type { PricingCatalog } from '@nova/contracts';
+} from "@nova/mcp-shared";
+import type { PricingCatalog } from "@nova/contracts";
 
 /**
  * Pure aggregator for the usage JSONL corpus. Given a time window,
@@ -102,11 +102,11 @@ function emptyAcc(): Accumulator {
 }
 
 function num(v: unknown): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
 function str(v: unknown): string {
-  return typeof v === 'string' ? v : '';
+  return typeof v === "string" ? v : "";
 }
 
 function toGroup(key: string, acc: Accumulator): CostGroup {
@@ -148,9 +148,7 @@ export function computeCostSnapshot(opts: CostSnapshotOptions = {}): CostSnapsho
   } else if (opts.pricingDir === null) {
     catalog = new Map();
   } else {
-    pricingLoad = loadPricing(
-      opts.pricingDir !== undefined ? { dir: opts.pricingDir } : {},
-    );
+    pricingLoad = loadPricing(opts.pricingDir !== undefined ? { dir: opts.pricingDir } : {});
     catalog = pricingLoad.catalog;
   }
 
@@ -169,7 +167,7 @@ export function computeCostSnapshot(opts: CostSnapshotOptions = {}): CostSnapsho
     const completion = num(r.completion_tokens);
     const total = num(r.total_tokens);
     const latency = num(r.latency_ms);
-    const kind = (r.kind as 'chat' | 'embedding' | 'responses') ?? 'chat';
+    const kind = (r.kind as "chat" | "embedding" | "responses") ?? "chat";
 
     const priced = estimateCostUsd(
       {
