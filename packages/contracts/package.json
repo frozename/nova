@@ -2,12 +2,23 @@
   "name": "@nova/contracts",
   "version": "0.1.0",
   "description": "Canonical AI-provider contracts (chat, embeddings, models, health) shared by llamactl, sirius-gateway, and embersynth.",
+  "license": "MIT",
   "type": "module",
-  "main": "./src/index.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frozename/nova.git",
+    "directory": "packages/contracts"
+  },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
   },
   "scripts": {
+    "build": "tsc --build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
@@ -19,7 +30,10 @@
     "typescript": "^5.9.3"
   },
   "files": [
-    "src",
+    "dist/src",
     "README.md"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }
