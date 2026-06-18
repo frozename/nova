@@ -279,13 +279,13 @@ describe("openai-compat provider — onUsage callback", () => {
       messages: [{ role: "user", content: "hi" }],
     });
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]!.provider).toBe("stub");
-    expect(snapshots[0]!.model).toBe("gpt-4o-mini");
-    expect(snapshots[0]!.kind).toBe("chat");
-    expect(snapshots[0]!.prompt_tokens).toBe(2);
-    expect(snapshots[0]!.completion_tokens).toBe(1);
-    expect(snapshots[0]!.total_tokens).toBe(3);
-    expect(typeof snapshots[0]!.latency_ms).toBe("number");
+    expect(snapshots[0]!['provider']).toBe("stub");
+    expect(snapshots[0]!['model']).toBe("gpt-4o-mini");
+    expect(snapshots[0]!['kind']).toBe("chat");
+    expect(snapshots[0]!['prompt_tokens']).toBe(2);
+    expect(snapshots[0]!['completion_tokens']).toBe(1);
+    expect(snapshots[0]!['total_tokens']).toBe(3);
+    expect(typeof snapshots[0]!['latency_ms']).toBe("number");
   });
 
   test("does not fire when the provider omits `usage`", async () => {
@@ -366,9 +366,9 @@ describe("openai-compat provider — onUsage callback", () => {
       input: "abc",
     });
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]!.kind).toBe("embedding");
-    expect(snapshots[0]!.completion_tokens).toBe(0);
-    expect(snapshots[0]!.prompt_tokens).toBe(3); // input length
+    expect(snapshots[0]!['kind']).toBe("embedding");
+    expect(snapshots[0]!['completion_tokens']).toBe(0);
+    expect(snapshots[0]!['prompt_tokens']).toBe(3); // input length
   });
 
   test("fires on streaming when upstream emits a usage frame", async () => {
@@ -391,9 +391,9 @@ describe("openai-compat provider — onUsage callback", () => {
       void _ev;
     }
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]!.prompt_tokens).toBe(4);
-    expect(snapshots[0]!.completion_tokens).toBe(2);
-    expect(snapshots[0]!.total_tokens).toBe(6);
+    expect(snapshots[0]!['prompt_tokens']).toBe(4);
+    expect(snapshots[0]!['completion_tokens']).toBe(2);
+    expect(snapshots[0]!['total_tokens']).toBe(6);
   });
 
   test("does NOT fire on streaming when upstream omits the usage frame", async () => {

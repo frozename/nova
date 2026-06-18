@@ -95,7 +95,7 @@ models:
     const { catalog } = loadPricing({ dir });
     // readdir is sorted alphabetically, so b-openai.yaml loads last
     // and overwrites the a-openai entry.
-    expect(catalog.get("openai")!.models.x!.prompt_per_1k_tokens_usd).toBe(9);
+    expect(catalog.get("openai")!.models['x']!.prompt_per_1k_tokens_usd).toBe(9);
   });
 });
 

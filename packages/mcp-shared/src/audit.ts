@@ -41,7 +41,7 @@ export interface AuditOptions {
 }
 
 export function defaultAuditDir(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.LLAMACTL_MCP_AUDIT_DIR?.trim();
+  const override = env['LLAMACTL_MCP_AUDIT_DIR']?.trim();
   if (override) return override;
   return join(homedir(), ".llamactl", "mcp", "audit");
 }

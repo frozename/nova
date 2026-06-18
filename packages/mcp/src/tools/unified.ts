@@ -58,8 +58,8 @@ function normalizeLlamactl(payload: unknown): NormalizedEntry[] {
   for (const entry of payload) {
     if (!entry || typeof entry !== "object") continue;
     const rec = entry as Record<string, unknown>;
-    const rel = typeof rec.rel === "string" ? rec.rel : undefined;
-    const id = typeof rec.id === "string" ? rec.id : undefined;
+    const rel = typeof rec['rel'] === "string" ? rec['rel'] : undefined;
+    const id = typeof rec['id'] === "string" ? rec['id'] : undefined;
     const pickedId = rel ?? id;
     if (!pickedId) continue;
     out.push({ id: pickedId, details: entry });
@@ -73,19 +73,19 @@ function normalizeSirius(payload: unknown): NormalizedEntry[] {
   // an OpenAI-style `{data: [{id, ...}, ...], object: 'list'}` envelope
   // (with a `status` wrapper from `fetchJson` when sirius is reachable).
   const rec = payload as Record<string, unknown>;
-  const body = (rec.body && typeof rec.body === "object" ? rec.body : rec) as Record<
+  const body = (rec['body'] && typeof rec['body'] === "object" ? rec['body'] : rec) as Record<
     string,
     unknown
   >;
-  const data = Array.isArray(body.data)
-    ? body.data
-    : Array.isArray(rec.data)
-      ? (rec.data as unknown[])
+  const data = Array.isArray(body['data'])
+    ? body['data']
+    : Array.isArray(rec['data'])
+      ? (rec['data'] as unknown[])
       : [];
   const out: NormalizedEntry[] = [];
   for (const entry of data) {
     if (!entry || typeof entry !== "object") continue;
-    const id = (entry as Record<string, unknown>).id;
+    const id = (entry as Record<string, unknown>)['id'];
     if (typeof id !== "string" || id.length === 0) continue;
     out.push({ id, details: entry });
   }
@@ -95,7 +95,7 @@ function normalizeSirius(payload: unknown): NormalizedEntry[] {
 function normalizeEmbersynth(payload: unknown): NormalizedEntry[] {
   if (!payload || typeof payload !== "object") return [];
   const rec = payload as Record<string, unknown>;
-  const map = rec.syntheticModels;
+  const map = rec['syntheticModels'];
   if (!map || typeof map !== "object") return [];
   const out: NormalizedEntry[] = [];
   for (const [key, value] of Object.entries(map as Record<string, unknown>)) {

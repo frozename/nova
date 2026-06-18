@@ -136,7 +136,7 @@ describe("facade/proxy mountProxyTools", () => {
       // The downstream's handler received the same args (value
       // preserved; extras may be stripped by the fake downstream's
       // own Zod schema, but at the very least `value` should arrive).
-      expect(captured.last?.value).toBe("hello");
+      expect(captured.last?.['value']).toBe("hello");
     } finally {
       await close();
       await d1.close();

@@ -81,8 +81,8 @@ downstreams: []
   });
 
   test("env interpolation replaces known vars and leaves missing literal", () => {
-    process.env.KNOWN = "resolved-value";
-    delete process.env.MISSING;
+    process.env['KNOWN'] = "resolved-value";
+    delete process.env['MISSING'];
     const path = writeCfg(
       "interp.yaml",
       `version: 1
@@ -107,7 +107,7 @@ downstreams:
     }
     const stdio = cfg!.downstreams[1]!;
     if (stdio.transport === "stdio") {
-      expect(stdio.env?.MISSING_VAR).toBe("${MISSING}");
+      expect(stdio.env?.['MISSING_VAR']).toBe("${MISSING}");
     }
   });
 

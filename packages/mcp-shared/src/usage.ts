@@ -31,9 +31,9 @@ export interface UsageWriteOptions {
 }
 
 export function defaultUsageDir(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.LLAMACTL_USAGE_DIR?.trim();
+  const override = env['LLAMACTL_USAGE_DIR']?.trim();
   if (override) return override;
-  const devStorage = env.DEV_STORAGE?.trim();
+  const devStorage = env['DEV_STORAGE']?.trim();
   const base = devStorage && devStorage.length > 0 ? devStorage : join(homedir(), ".llamactl");
   return join(base, "usage");
 }

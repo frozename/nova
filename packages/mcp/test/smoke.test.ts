@@ -151,7 +151,7 @@ describe("@nova/mcp facade", () => {
 
     const audits = auditLines();
     expect(audits).toHaveLength(1);
-    expect(audits[0]!.tool).toBe("nova.ops.overview");
+    expect(audits[0]!['tool']).toBe("nova.ops.overview");
   });
 
   test("nova.ops.overview surfaces empty sections when files are absent", async () => {
@@ -203,6 +203,6 @@ describe("@nova/mcp facade", () => {
 
     const audits = auditLines();
     expect(audits).toHaveLength(1);
-    expect(audits[0]!.tool).toBe("nova.ops.healthcheck");
+    expect(audits[0]!['tool']).toBe("nova.ops.healthcheck");
   });
 });

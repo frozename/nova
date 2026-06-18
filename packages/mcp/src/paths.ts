@@ -17,17 +17,17 @@ function trimmedEnv(value: string | undefined): string | undefined {
 }
 
 function base(env: NodeJS.ProcessEnv): string {
-  return trimmedEnv(env.DEV_STORAGE) ?? join(homedir(), ".llamactl");
+  return trimmedEnv(env['DEV_STORAGE']) ?? join(homedir(), ".llamactl");
 }
 
 export function defaultKubeconfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  return trimmedEnv(env.LLAMACTL_CONFIG) ?? join(base(env), "config");
+  return trimmedEnv(env['LLAMACTL_CONFIG']) ?? join(base(env), "config");
 }
 
 export function defaultSiriusProvidersPath(env: NodeJS.ProcessEnv = process.env): string {
-  return trimmedEnv(env.LLAMACTL_PROVIDERS_FILE) ?? join(base(env), "sirius-providers.yaml");
+  return trimmedEnv(env['LLAMACTL_PROVIDERS_FILE']) ?? join(base(env), "sirius-providers.yaml");
 }
 
 export function defaultEmbersynthConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  return trimmedEnv(env.LLAMACTL_EMBERSYNTH_CONFIG) ?? join(base(env), "embersynth.yaml");
+  return trimmedEnv(env['LLAMACTL_EMBERSYNTH_CONFIG']) ?? join(base(env), "embersynth.yaml");
 }

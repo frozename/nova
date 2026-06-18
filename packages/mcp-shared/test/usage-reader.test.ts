@@ -56,7 +56,7 @@ describe("readUsage", () => {
       since: "2026-04-17T10:00:00Z",
       until: "2026-04-17T14:00:00Z",
     });
-    expect(res.records.map((r) => r.total_tokens)).toEqual([2]);
+    expect(res.records.map((r) => r['total_tokens'])).toEqual([2]);
   });
 
   test("provider filter skips files with non-matching prefix", () => {

@@ -173,8 +173,8 @@ describe("nova.operator.plan — MCP tool surface", () => {
     expect(parsed.plan.requiresConfirmation).toBe(true);
 
     const audits = auditLines();
-    const planAudit = audits.find((a) => a.tool === "nova.operator.plan")!;
-    const auditResult = planAudit.result as {
+    const planAudit = audits.find((a) => a['tool'] === "nova.operator.plan")!;
+    const auditResult = planAudit['result'] as {
       outcome: string;
       executor: string;
       stepCount: number;
@@ -219,8 +219,8 @@ describe("nova.operator.plan — MCP tool surface", () => {
     expect(parsed.rawPlan).toBeDefined();
 
     const audits = auditLines();
-    const planAudit = audits.find((a) => a.tool === "nova.operator.plan")!;
-    const auditResult = planAudit.result as { outcome: string; reason: string };
+    const planAudit = audits.find((a) => a['tool'] === "nova.operator.plan")!;
+    const auditResult = planAudit['result'] as { outcome: string; reason: string };
     expect(auditResult.outcome).toBe("failed");
     expect(auditResult.reason).toBe("plan-shape-invalid");
   });

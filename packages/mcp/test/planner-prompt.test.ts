@@ -78,15 +78,15 @@ describe("buildPlannerPrompt", () => {
     expect(submitPlanFunction.name).toBe("submit_plan");
     expect(submitPlanFunction.description.length).toBeGreaterThan(0);
     const params = submitPlanFunction.parameters;
-    expect(params.type).toBe("object");
-    expect(params.required).toEqual(["steps", "reasoning"]);
-    const props = params.properties as Record<string, Record<string, unknown>>;
-    const steps = props.steps!;
-    expect(steps.type).toBe("array");
-    expect(steps.maxItems).toBe(20);
-    const stepItems = steps.items as Record<string, unknown>;
-    expect(stepItems.required).toEqual(["tool", "annotation"]);
-    const stepProps = stepItems.properties as Record<string, Record<string, unknown>>;
+    expect(params['type']).toBe("object");
+    expect(params['required']).toEqual(["steps", "reasoning"]);
+    const props = params['properties'] as Record<string, Record<string, unknown>>;
+    const steps = props['steps']!;
+    expect(steps['type']).toBe("array");
+    expect(steps['maxItems']).toBe(20);
+    const stepItems = steps['items'] as Record<string, unknown>;
+    expect(stepItems['required']).toEqual(["tool", "annotation"]);
+    const stepProps = stepItems['properties'] as Record<string, Record<string, unknown>>;
     expect(Object.keys(stepProps).sort()).toEqual(["annotation", "args", "dryRun", "tool"]);
   });
 

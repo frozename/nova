@@ -185,15 +185,15 @@ function tallyRecords(records: Record<string, unknown>[], catalog: PricingCatalo
     totalMissingPricing: 0,
   };
   for (const r of records) {
-    const provider = str(r.provider);
-    const model = str(r.model);
+    const provider = str(r['provider']);
+    const model = str(r['model']);
     if (!provider || !model) continue;
-    const prompt = num(r.prompt_tokens);
-    const completion = num(r.completion_tokens);
-    const total = num(r.total_tokens);
-    const latency = num(r.latency_ms);
+    const prompt = num(r['prompt_tokens']);
+    const completion = num(r['completion_tokens']);
+    const total = num(r['total_tokens']);
+    const latency = num(r['latency_ms']);
     const kind: "chat" | "embedding" | "responses" =
-      r.kind === "embedding" || r.kind === "responses" ? r.kind : "chat";
+      r['kind'] === "embedding" || r['kind'] === "responses" ? r['kind'] : "chat";
 
     const priced = estimateCostUsd(
       { provider, model, kind, prompt_tokens: prompt, completion_tokens: completion },

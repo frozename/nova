@@ -49,7 +49,7 @@ export interface LoadConfigOptions {
 }
 
 export function defaultNovaMcpConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.NOVA_MCP_CONFIG?.trim();
+  const override = env['NOVA_MCP_CONFIG']?.trim();
   return override !== undefined && override.length > 0
     ? override
     : join(homedir(), ".llamactl", "nova-mcp.yaml");

@@ -190,7 +190,7 @@ describe("nova.models.list", () => {
 
       expect(body.partial).toBeDefined();
       expect(body.partial?.failed).toEqual(["sirius"]);
-      expect(body.partial?.errors.sirius).toContain("sirius-boom");
+      expect(body.partial?.errors['sirius']).toContain("sirius-boom");
     } finally {
       await close();
       await llamactl.close();
@@ -225,9 +225,9 @@ describe("nova.models.list", () => {
       expect(body.models).toEqual([]);
       expect(body.partial).toBeDefined();
       expect(body.partial?.failed.sort()).toEqual(["embersynth", "llamactl", "sirius"]);
-      expect(body.partial?.errors.llamactl).toContain("llamactl-down");
-      expect(body.partial?.errors.sirius).toContain("sirius-down");
-      expect(body.partial?.errors.embersynth).toContain("embersynth-down");
+      expect(body.partial?.errors['llamactl']).toContain("llamactl-down");
+      expect(body.partial?.errors['sirius']).toContain("sirius-down");
+      expect(body.partial?.errors['embersynth']).toContain("embersynth-down");
     } finally {
       await close();
       await llamactl.close();
@@ -296,11 +296,11 @@ describe("nova.models.list", () => {
         name: "nova.models.list",
         arguments: { scope: "custom" },
       });
-      expect(llamactlCaptured.last?.scope).toBe("custom");
+      expect(llamactlCaptured.last?.['scope']).toBe("custom");
       // sirius + embersynth fake handlers use `scope: z.string().optional()`;
       // the nova tool sends no arg to them, so captured.scope is undefined.
-      expect(siriusCaptured.last?.scope).toBeUndefined();
-      expect(embCaptured.last?.scope).toBeUndefined();
+      expect(siriusCaptured.last?.['scope']).toBeUndefined();
+      expect(embCaptured.last?.['scope']).toBeUndefined();
     } finally {
       await close();
       await llamactl.close();

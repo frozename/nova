@@ -85,7 +85,7 @@ function shouldReadFile(
 
 /** True when a record's `ts` (if any) falls inside [since, until). */
 function inWindow(rec: Record<string, unknown>, window: TimeWindow): boolean {
-  const ts = rec.ts;
+  const ts = rec['ts'];
   if (typeof ts !== "string") return true;
   const ms = Date.parse(ts);
   if (Number.isNaN(ms)) return true;
