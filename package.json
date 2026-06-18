@@ -10,9 +10,10 @@
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --build",
+    "typecheck:strict": "tsc --noEmit -p tsconfig.eslint.json",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "eslint . --max-warnings=0 && npm run typecheck:strict",
     "lint:fix": "eslint . --fix",
     "test": "bun test packages/contracts/test packages/mcp-shared/test packages/mcp/test"
   },
