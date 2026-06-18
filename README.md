@@ -12,11 +12,11 @@ contracts every layer of that stack has to speak.
 
 ## Packages
 
-| Package            | Role                                                                                                                                                                                                                                        |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@nova/contracts`  | Canonical AI-provider contracts. Chat, embeddings, models, health, stream, usage schemas. `AiProvider` interface. Factory for OpenAI-compat adapters that covers chat + embeddings + streaming (content + tool-call deltas) out of the box. |
-| `@nova/mcp-shared` | Cross-cutting helpers for MCP servers that expose operator surfaces — audit sink, content envelope helper, usage-record sink + reader. Transport-agnostic; plug into any MCP server.                                                        |
-| `@nova/mcp`        | Unified operator MCP server — roll-up tools over sibling YAML configs + usage JSONL, plus `nova.operator.plan`, the LLM-backed intent-to-plan translator. Optional; a reference consumer of the two layers above.                           |
+| Package                 | Role                                                                                                                                                                                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@novaproto/contracts`  | Canonical AI-provider contracts. Chat, embeddings, models, health, stream, usage schemas. `AiProvider` interface. Factory for OpenAI-compat adapters that covers chat + embeddings + streaming (content + tool-call deltas) out of the box. |
+| `@novaproto/mcp-shared` | Cross-cutting helpers for MCP servers that expose operator surfaces — audit sink, content envelope helper, usage-record sink + reader. Transport-agnostic; plug into any MCP server.                                                        |
+| `@novaproto/mcp`        | Unified operator MCP server — roll-up tools over sibling YAML configs + usage JSONL, plus `nova.operator.plan`, the LLM-backed intent-to-plan translator. Optional; a reference consumer of the two layers above.                           |
 
 ## Why
 
@@ -34,7 +34,7 @@ an operator runbook. Each one re-derives the same primitives:
 Nova answers those once. Adapter fixes land in one place; schema
 changes propagate on `bun install`.
 
-## `@nova/contracts` — the SDK core
+## `@novaproto/contracts` — the SDK core
 
 Every type that crosses a process boundary:
 
@@ -58,7 +58,7 @@ chat (streaming + non-streaming), embeddings, tool calls, finish-
 reason mapping, model listing, `GET /models` or custom `healthPath`
 probing. Used by every consumer in the family.
 
-## `@nova/mcp-shared` — MCP server scaffolding
+## `@novaproto/mcp-shared` — MCP server scaffolding
 
 Thin utilities every MCP server wants:
 
@@ -75,10 +75,10 @@ content: [{ type: 'text', text }] }` envelope. Keeps the
   the JSONL corpus with day-boundary pre-filtering + torn-write
   tolerance. Consumed by cost aggregators.
 
-Drop into any MCP server (your own, or `@nova/mcp`) without pulling
+Drop into any MCP server (your own, or `@novaproto/mcp`) without pulling
 framework dependencies.
 
-## `@nova/mcp` — unified operator MCP facade
+## `@novaproto/mcp` — unified operator MCP facade
 
 Optional but useful: a stdio MCP server that rolls up the YAMLs a
 multi-provider AI deployment typically writes and surfaces them
@@ -120,15 +120,15 @@ consumers do not need the Bun runtime. Bun is the development and CI
 runtime; the published artifacts run anywhere Node does.
 
 ```bash
-npm install @nova/contracts @nova/mcp-shared
-# or: bun add @nova/contracts @nova/mcp-shared
+npm install @novaproto/contracts @novaproto/mcp-shared
+# or: bun add @novaproto/contracts @novaproto/mcp-shared
 ```
 
 ```json
 {
   "dependencies": {
-    "@nova/contracts": "^0.1.0",
-    "@nova/mcp-shared": "^0.1.0"
+    "@novaproto/contracts": "^0.1.0",
+    "@novaproto/mcp-shared": "^0.1.0"
   }
 }
 ```
@@ -144,7 +144,7 @@ Nova bump.
 ### Example — build a provider adapter
 
 ```ts
-import { createOpenAICompatProvider } from "@nova/contracts";
+import { createOpenAICompatProvider } from "@novaproto/contracts";
 
 const provider = createOpenAICompatProvider({
   name: "together",
@@ -161,7 +161,7 @@ const response = await provider.createResponse({
 ### Example — log usage
 
 ```ts
-import { appendUsageBackground } from "@nova/mcp-shared";
+import { appendUsageBackground } from "@novaproto/mcp-shared";
 
 appendUsageBackground({
   record: {
@@ -181,7 +181,7 @@ appendUsageBackground({
 
 ```ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { appendAudit, toTextContent } from "@nova/mcp-shared";
+import { appendAudit, toTextContent } from "@novaproto/mcp-shared";
 
 const server = new McpServer({ name: "my-service", version: "0.0.0" });
 
@@ -205,7 +205,7 @@ server.registerTool(
 2. Bump `version` in the changed package following semver intent
    (wire-shape changes are breaking; additive schemas are minor;
    docstring-only are patch).
-3. In each downstream consumer, bump the `@nova/*` range and run
+3. In each downstream consumer, bump the `@novaproto/*` range and run
    `bun install` (or `npm install`) to refresh the lockfile, then run
    that consumer's test suite. Commit the lockfile bump alongside any
    follow-up code changes.
@@ -217,16 +217,16 @@ with Prettier on the way in.
 
 ```
 packages/
-├── contracts/                 # @nova/contracts
+├── contracts/                 # @novaproto/contracts
 │   ├── src/
 │   │   ├── provider.ts
 │   │   ├── providers/openai-compat.ts
 │   │   └── schemas/{chat,embeddings,health,models,stream,usage}.ts
 │   └── test/
-├── mcp-shared/                # @nova/mcp-shared
+├── mcp-shared/                # @novaproto/mcp-shared
 │   ├── src/{audit,content,usage,usage-reader,index}.ts
 │   └── test/
-└── mcp/                       # @nova/mcp
+└── mcp/                       # @novaproto/mcp
     ├── bin/nova-mcp.ts
     ├── src/
     │   ├── cost/snapshot.ts
@@ -268,7 +268,7 @@ suite. The test step routes through `scripts/bun-test-gate.ts`, which
 gates on reported pass/fail counts and tolerates a Bun NAPI-teardown
 panic (exit 133) only when zero tests failed.
 
-Releases (`.github/workflows/release.yml`) publish the `@nova/*`
+Releases (`.github/workflows/release.yml`) publish the `@novaproto/*`
 packages to npm in dependency order (contracts → mcp-shared → mcp).
 The default run is a dry-run pack; a `v*` tag or a manual dispatch
 with `dry_run=false` publishes for real.
@@ -282,7 +282,7 @@ Real-world apps built on Nova (source + live usage examples):
   package.
 - [sirius-gateway](https://github.com/frozename/sirius-gateway) —
   multi-provider AI gateway with OpenAI-compatible routes. Adapters
-  delegate to `@nova/contracts`.
+  delegate to `@novaproto/contracts`.
 - [embersynth](https://github.com/frozename/embersynth) —
   capability-based distributed AI orchestration runtime. OpenAI-
   compatible adapter delegates to Nova's provider factory.

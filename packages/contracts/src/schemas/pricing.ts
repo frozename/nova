@@ -58,7 +58,7 @@ export type ProviderPricing = z.infer<typeof ProviderPricingSchema>;
 
 /**
  * In-memory pricing catalog: `provider → model → rates`. Built by
- * `loadPricing()` (in `@nova/mcp-shared`) from the files under the
+ * `loadPricing()` (in `@novaproto/mcp-shared`) from the files under the
  * pricing directory. Consumers treat it as opaque; use
  * `estimateCostUsd()` to look up.
  */

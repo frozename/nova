@@ -1,5 +1,5 @@
 {
-  "name": "@nova/contracts",
+  "name": "@novaproto/contracts",
   "version": "0.1.0",
   "description": "Canonical AI-provider contracts (chat, embeddings, models, health) shared by llamactl, sirius-gateway, and embersynth.",
   "license": "MIT",

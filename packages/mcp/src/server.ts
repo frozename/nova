@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { appendAudit, toTextContent } from "@nova/mcp-shared";
+import { appendAudit, toTextContent } from "@novaproto/mcp-shared";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -18,7 +18,7 @@ import {
 import { type PlannerExecutor, runPlanner } from "./planner/executor.js";
 
 /**
- * `@nova/mcp` — unified MCP facade across the llamactl family.
+ * `@novaproto/mcp` — unified MCP facade across the llamactl family.
  *
  * Today's surface is deliberately narrow: two roll-up tools that an
  * operator (or an LLM pretending to be one) can call to answer
@@ -156,7 +156,7 @@ export interface BuildNovaMcpServerOptions {
    *  own implementation to assert shape without spinning up a model. */
   plannerExecutor?: PlannerExecutor;
   /** Allowlist override used by `nova.operator.plan`. Defaults to the
-   *  DEFAULT_ALLOWLIST shipped with @nova/mcp. */
+   *  DEFAULT_ALLOWLIST shipped with @novaproto/mcp. */
   plannerAllowlist?: AllowlistConfig;
   /** Tool catalog the planner advertises to the executor. Defaults to
    *  an empty list — `nova.operator.plan` can still run (the stub
@@ -180,8 +180,14 @@ function registerOverviewTool(server: McpServer): void {
     },
     (input) => {
       const kubePath = resolveOperatorPath(input.kubeconfigPath, defaultKubeconfigPath());
-      const siriusPath = resolveOperatorPath(input.siriusProvidersPath, defaultSiriusProvidersPath());
-      const embPath = resolveOperatorPath(input.embersynthConfigPath, defaultEmbersynthConfigPath());
+      const siriusPath = resolveOperatorPath(
+        input.siriusProvidersPath,
+        defaultSiriusProvidersPath(),
+      );
+      const embPath = resolveOperatorPath(
+        input.embersynthConfigPath,
+        defaultEmbersynthConfigPath(),
+      );
 
       const kube = readYamlIfExists(kubePath) as KubeconfigShape | null;
       const sirius = readYamlIfExists(siriusPath) as SiriusProvidersShape | null;
@@ -251,7 +257,10 @@ function registerHealthcheckTool(server: McpServer): void {
     },
     async (input) => {
       const kubePath = resolveOperatorPath(input.kubeconfigPath, defaultKubeconfigPath());
-      const siriusPath = resolveOperatorPath(input.siriusProvidersPath, defaultSiriusProvidersPath());
+      const siriusPath = resolveOperatorPath(
+        input.siriusProvidersPath,
+        defaultSiriusProvidersPath(),
+      );
       const timeoutMs = input.timeoutMs;
 
       const kube = readYamlIfExists(kubePath) as KubeconfigShape | null;

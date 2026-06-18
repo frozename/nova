@@ -108,12 +108,12 @@ describe("no-cross-package-relative lint", () => {
     expect(result.stderr).toContain("packages/mcp/src/paths.ts:1");
   });
 
-  test("allows import.meta.resolve of a @nova/* package subpath", async () => {
+  test("allows import.meta.resolve of a @novaproto/* package subpath", async () => {
     await writeFixture(
       "packages/mcp/src/boot.ts",
       [
         "const DEFAULT_WORKER_ENTRY = fileURLToPath(",
-        '  import.meta.resolve("@nova/mcp-shared/worker"),',
+        '  import.meta.resolve("@novaproto/mcp-shared/worker"),',
         ");",
         "",
       ].join("\n"),
@@ -137,14 +137,14 @@ describe("no-cross-package-relative lint", () => {
     expect(result.stdout).toContain("no cross-package relative imports found");
   });
 
-  test("allows @nova/* package specifiers and intra-package relatives", async () => {
+  test("allows @novaproto/* package specifiers and intra-package relatives", async () => {
     await writeFixture(
       "packages/mcp/src/server.ts",
       [
-        'import { appendAudit, toTextContent } from "@nova/mcp-shared";',
-        'import type { PricingCatalog } from "@nova/contracts";',
+        'import { appendAudit, toTextContent } from "@novaproto/mcp-shared";',
+        'import type { PricingCatalog } from "@novaproto/contracts";',
         'import { defaultNovaMcpConfigPath } from "./facade/config.js";',
-        'const mod = await import("@nova/contracts");',
+        'const mod = await import("@novaproto/contracts");',
         "export const ok = true;",
         "",
       ].join("\n"),

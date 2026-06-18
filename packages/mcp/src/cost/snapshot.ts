@@ -1,4 +1,4 @@
-import type { PricingCatalog } from "@nova/contracts";
+import type { PricingCatalog } from "@novaproto/contracts";
 
 import {
   estimateCostUsd,
@@ -6,7 +6,7 @@ import {
   type LoadPricingResult,
   readUsage,
   type UsageReadOptions,
-} from "@nova/mcp-shared";
+} from "@novaproto/mcp-shared";
 
 /**
  * Pure aggregator for the usage JSONL corpus. Given a time window,
@@ -21,7 +21,7 @@ import {
  * aggregation never blocks on a missing rate table.
  *
  * Separated from the MCP tool registration so callers outside
- * `@nova/mcp` (CLI + Electron + a future cost-guardian agent) can
+ * `@novaproto/mcp` (CLI + Electron + a future cost-guardian agent) can
  * invoke the same aggregation without booting a server.
  */
 
@@ -185,15 +185,15 @@ function tallyRecords(records: Record<string, unknown>[], catalog: PricingCatalo
     totalMissingPricing: 0,
   };
   for (const r of records) {
-    const provider = str(r['provider']);
-    const model = str(r['model']);
+    const provider = str(r["provider"]);
+    const model = str(r["model"]);
     if (!provider || !model) continue;
-    const prompt = num(r['prompt_tokens']);
-    const completion = num(r['completion_tokens']);
-    const total = num(r['total_tokens']);
-    const latency = num(r['latency_ms']);
+    const prompt = num(r["prompt_tokens"]);
+    const completion = num(r["completion_tokens"]);
+    const total = num(r["total_tokens"]);
+    const latency = num(r["latency_ms"]);
     const kind: "chat" | "embedding" | "responses" =
-      r['kind'] === "embedding" || r['kind'] === "responses" ? r['kind'] : "chat";
+      r["kind"] === "embedding" || r["kind"] === "responses" ? r["kind"] : "chat";
 
     const priced = estimateCostUsd(
       { provider, model, kind, prompt_tokens: prompt, completion_tokens: completion },

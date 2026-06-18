@@ -1,4 +1,4 @@
-import type { AiProvider, UnifiedAiRequest, UnifiedAiResponse } from "@nova/contracts";
+import type { AiProvider, UnifiedAiRequest, UnifiedAiResponse } from "@novaproto/contracts";
 
 import { describe, expect, test } from "bun:test";
 
@@ -127,7 +127,7 @@ describe("createLlmExecutor — request construction", () => {
     expect(req.tools).toHaveLength(1);
     expect(req.tools![0]!.function.name).toBe("submit_plan");
     // request_id stamped in providerOptions.
-    expect(typeof req.providerOptions?.['request_id']).toBe("string");
+    expect(typeof req.providerOptions?.["request_id"]).toBe("string");
   });
 
   test("executor name bakes in provider + model", () => {
@@ -157,7 +157,7 @@ describe("createLlmExecutor — success path", () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.rawPlan).toEqual(plan);
-    expect(out.trace?.['provider']).toBe("fake");
+    expect(out.trace?.["provider"]).toBe("fake");
   });
 
   test("end-to-end via runPlanner + PlanSchema validation", async () => {
@@ -250,7 +250,7 @@ describe("createLlmExecutor — failure modes", () => {
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.reason).toBe("parse-failed");
-    expect(out.trace?.['rawArguments']).toContain("{not valid json");
+    expect(out.trace?.["rawArguments"]).toContain("{not valid json");
   });
 
   test("schema-invalid plan surfaces as plan-shape-invalid through runPlanner", async () => {

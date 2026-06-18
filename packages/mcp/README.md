@@ -1,4 +1,4 @@
-# @nova/mcp
+# @novaproto/mcp
 
 Unified MCP facade — a single operator entry point that rolls up tools
 across the llamactl-family servers (llamactl, sirius-gateway,
@@ -12,7 +12,7 @@ The package is **node-portable** — its library and CLI entry have no
 ## Install
 
 ```sh
-npm install @nova/mcp
+npm install @novaproto/mcp
 ```
 
 ## CLI
@@ -31,11 +31,11 @@ its native `nova.*` tools.
 ## Library
 
 ```ts
-import { buildNovaMcpServer } from "@nova/mcp";
+import { buildNovaMcpServer } from "@novaproto/mcp";
 ```
 
-Depends on [`@nova/contracts`](https://www.npmjs.com/package/@nova/contracts)
-and [`@nova/mcp-shared`](https://www.npmjs.com/package/@nova/mcp-shared).
+Depends on [`@novaproto/contracts`](https://www.npmjs.com/package/@novaproto/contracts)
+and [`@novaproto/mcp-shared`](https://www.npmjs.com/package/@novaproto/mcp-shared).
 
 ## License
 

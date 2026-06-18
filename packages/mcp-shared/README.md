@@ -1,4 +1,4 @@
-# @nova/mcp-shared
+# @novaproto/mcp-shared
 
 Cross-cutting helpers for llamactl-family MCP servers: audit sink,
 content envelopes, dry-run scaffolding, and usage/pricing readers.
@@ -9,16 +9,16 @@ dependencies and runs on Node.js and Bun alike.
 ## Install
 
 ```sh
-npm install @nova/mcp-shared
+npm install @novaproto/mcp-shared
 ```
 
 ## Usage
 
 ```ts
-import { appendAudit, toTextContent } from "@nova/mcp-shared";
+import { appendAudit, toTextContent } from "@novaproto/mcp-shared";
 ```
 
-Depends on [`@nova/contracts`](https://www.npmjs.com/package/@nova/contracts)
+Depends on [`@novaproto/contracts`](https://www.npmjs.com/package/@novaproto/contracts)
 for the shared provider/usage/pricing schemas.
 
 ## License

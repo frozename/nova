@@ -16,7 +16,7 @@ import {
  * consumers.
  */
 
-describe("@nova/contracts public surface", () => {
+describe("@novaproto/contracts public surface", () => {
   test("re-exports chat schemas", () => {
     const msg = ChatMessageSchema.parse({ role: "user", content: "hi" });
     expect(msg.content).toBe("hi");

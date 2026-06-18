@@ -4,7 +4,7 @@ import {
   type ProviderPricing,
   ProviderPricingSchema,
   type UsageRecord,
-} from "@nova/contracts";
+} from "@novaproto/contracts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -24,16 +24,16 @@ import { parse as parseYaml } from "yaml";
  *   estimate for a single UsageRecord or `undefined` when the
  *   provider/model isn't in the catalog. Pure; no I/O.
  *
- * Storage policy (see `@nova/contracts/schemas/pricing.ts`): one
+ * Storage policy (see `@novaproto/contracts/schemas/pricing.ts`): one
  * YAML file per provider under the pricing dir. File basename
  * doesn't have to match the provider field inside — the `provider`
  * field wins, the filename is a human convenience.
  */
 
 export function defaultPricingDir(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env['LLAMACTL_PRICING_DIR']?.trim();
+  const override = env["LLAMACTL_PRICING_DIR"]?.trim();
   if (override) return override;
-  const devStorage = env['DEV_STORAGE']?.trim();
+  const devStorage = env["DEV_STORAGE"]?.trim();
   const base = devStorage && devStorage.length > 0 ? devStorage : join(homedir(), ".llamactl");
   return join(base, "pricing");
 }

@@ -1,10 +1,10 @@
-import type { AiProvider, UnifiedAiRequest, UnifiedAiResponse } from "@nova/contracts";
+import type { AiProvider, UnifiedAiRequest, UnifiedAiResponse } from "@novaproto/contracts";
 
 import type { PlannerExecutor, PlannerExecutorInput, PlannerExecutorResult } from "./executor.js";
 
 /**
  * Real LLM-backed PlannerExecutor. Wraps any `AiProvider` (from
- * `@nova/contracts`) — OpenAI, Anthropic, Together, a local
+ * `@novaproto/contracts`) — OpenAI, Anthropic, Together, a local
  * llama.cpp served via Nova's `createOpenAICompatProvider`, a
  * sirius-gateway upstream — and turns a planner prompt into a
  * single chat completion call.

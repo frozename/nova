@@ -74,7 +74,7 @@ export const stubPlannerExecutor: PlannerExecutor = {
         ],
         reasoning:
           `stub planner acknowledging goal; returning a single ${toolName} call. ` +
-          `Real LLM wiring uses @nova/mcp's createLlmExecutor. (${String(input.tools.length)} tool${input.tools.length === 1 ? "" : "s"} in the allowlist)`,
+          `Real LLM wiring uses @novaproto/mcp's createLlmExecutor. (${String(input.tools.length)} tool${input.tools.length === 1 ? "" : "s"} in the allowlist)`,
         requiresConfirmation: false,
       },
       trace: {
@@ -118,7 +118,9 @@ export type RunPlannerResult =
 // when the executor returns no trace, the field is omitted entirely rather
 // than set to `undefined`. Extracted so the four call sites don't each add a
 // branch to runPlanner's cognitive complexity.
-function traceField(trace: Record<string, unknown> | undefined): { trace?: Record<string, unknown> } {
+function traceField(trace: Record<string, unknown> | undefined): {
+  trace?: Record<string, unknown>;
+} {
   return trace !== undefined ? { trace } : {};
 }
 

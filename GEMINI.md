@@ -8,7 +8,7 @@ conventions only.
 
 1. Read `AGENTS.md` at the repo root (full rules, style, stack).
 2. Read `README.md` if you need consumer-facing context.
-3. If the task touches schemas in `@nova/contracts` or package
+3. If the task touches schemas in `@novaproto/contracts` or package
    dependencies, plan the cross-repo sync **before** editing —
    Nova is consumed by llamactl, sirius-gateway, embersynth via
    `file:` deps. Schema changes are wire-shape changes.
@@ -23,7 +23,7 @@ conventions only.
   `workspace:*` breaks when a consumer links a Nova package from
   outside this workspace.
 - **Bun** only — no `npm`, `yarn`, `pnpm`.
-- **No framework deps in `@nova/contracts`.** It's schemas +
+- **No framework deps in `@novaproto/contracts`.** It's schemas +
   interfaces. Zero runtime side effects.
 
 ## Runtime + commands
@@ -38,7 +38,7 @@ bun packages/mcp/bin/nova-mcp.ts
 ## Semver discipline for schema changes
 
 `AGENTS.md` covers this in detail. Short version: any change to a
-Zod schema in `@nova/contracts` is a wire-shape change. Bump the
+Zod schema in `@novaproto/contracts` is a wire-shape change. Bump the
 package version; refresh every consumer's `bun install`; run every
 consumer's test suite; commit lockfile bumps per consumer.
 

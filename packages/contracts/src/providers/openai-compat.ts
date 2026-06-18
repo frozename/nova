@@ -14,7 +14,7 @@ import { FinishReasonSchema } from "../schemas/chat.js";
  * Callback fired after a successful chat or embedding round-trip
  * with the provider's reported token counts. Consumers use this to
  * append a UsageRecord to their JSONL sink (llamactl's
- * @nova/mcp-shared.appendUsageBackground) without the adapter
+ * @novaproto/mcp-shared.appendUsageBackground) without the adapter
  * needing to know what storage the consumer uses.
  *
  * The record is minimal on purpose — the adapter has no opinion on

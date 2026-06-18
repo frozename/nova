@@ -9,7 +9,7 @@ import type { DownstreamSpec, NovaMcpConfigV1 } from "./config.js";
 import { createBearerAuth } from "./auth.js";
 
 /**
- * Downstream MCP client lifecycle for the `@nova/mcp` facade.
+ * Downstream MCP client lifecycle for the `@novaproto/mcp` facade.
  *
  * A `Downstream` is a connected MCP `Client` paired with the name it
  * was configured under. The facade's proxy layer (Phase 3) iterates

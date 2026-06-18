@@ -1,4 +1,4 @@
-import type { PricingCatalog, ProviderPricing } from "@nova/contracts";
+import type { PricingCatalog, ProviderPricing } from "@novaproto/contracts";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";

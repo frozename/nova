@@ -1,5 +1,5 @@
 {
-  "name": "@nova/mcp",
+  "name": "@novaproto/mcp",
   "version": "0.1.0",
   "description": "Unified MCP facade — roll-up tools across llamactl, sirius-gateway, and embersynth. Operator's single entry point.",
   "license": "MIT",
@@ -27,8 +27,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
-    "@nova/contracts": "workspace:*",
-    "@nova/mcp-shared": "workspace:*",
+    "@novaproto/contracts": "workspace:*",
+    "@novaproto/mcp-shared": "workspace:*",
     "yaml": "^2.7.0",
     "zod": "^4.3.6"
   },

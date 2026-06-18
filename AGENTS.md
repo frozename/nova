@@ -8,12 +8,12 @@ user-facing overview.
 
 Nova is an AI-provider SDK + MCP server scaffolding:
 
-- `@nova/contracts` — canonical Zod schemas + TS interfaces for
+- `@novaproto/contracts` — canonical Zod schemas + TS interfaces for
   chat, embeddings, models, health, stream, usage; `AiProvider`
   interface; OpenAI-compat adapter factory.
-- `@nova/mcp-shared` — transport-agnostic helpers for MCP servers
+- `@novaproto/mcp-shared` — transport-agnostic helpers for MCP servers
   (audit sink, content envelopes, usage sink + reader).
-- `@nova/mcp` — unified operator MCP facade. Consumer of the two
+- `@novaproto/mcp` — unified operator MCP facade. Consumer of the two
   above.
 
 Nova publishes to npm under the `@nova` scope; sibling repos
@@ -39,9 +39,9 @@ shapes here; put them in the consumer.
 
 ```
 packages/
-├── contracts/        @nova/contracts  — schemas + interfaces only
-├── mcp-shared/       @nova/mcp-shared — audit + content + usage
-└── mcp/              @nova/mcp        — operator MCP facade
+├── contracts/        @novaproto/contracts  — schemas + interfaces only
+├── mcp-shared/       @novaproto/mcp-shared — audit + content + usage
+└── mcp/              @novaproto/mcp        — operator MCP facade
 ```
 
 Each package carries its own `package.json`, `tsconfig.json`, and
@@ -125,14 +125,14 @@ ones in `packages/mcp-shared/test/`).
 
 ## Schema changes = semver event
 
-Changing any Zod schema in `@nova/contracts` is a wire-shape change.
+Changing any Zod schema in `@novaproto/contracts` is a wire-shape change.
 Follow this sequence:
 
 1. Edit the schema + add/update tests.
 2. `bun run lint && bun run build && bun test` at the nova root.
 3. Bump `version` in the affected package (`packages/contracts/package.json`).
 4. In each downstream consumer (`llamactl`, `sirius-gateway`,
-   `embersynth`, …), bump the `@nova/*` range, `bun install` to
+   `embersynth`, …), bump the `@novaproto/*` range, `bun install` to
    refresh the lockfile, then run that consumer's full test suite.
 5. Commit the consumer's lockfile bump alongside any code changes
    the schema change required. One commit per consumer.
@@ -140,7 +140,7 @@ Follow this sequence:
 Never split a "nova schema" commit from its "consumer lockfile"
 commit without a good reason — agents should batch.
 
-## MCP facade (`@nova/mcp`) patterns
+## MCP facade (`@novaproto/mcp`) patterns
 
 - Tool handlers are thin. Validate input at the Zod boundary
   (`inputSchema` in `registerTool`), call a pure helper in
@@ -154,12 +154,12 @@ commit without a good reason — agents should batch.
   boundary. Duplicate critical guards inside the handler (e.g.,
   `runPlanner` re-checks empty goal).
 - Planner executor interface is injectable. Never bake a specific
-  model binding into `@nova/mcp`; consumers pass executors at
+  model binding into `@novaproto/mcp`; consumers pass executors at
   construction time via `buildNovaMcpServer({ plannerExecutor })`.
 
 ### Facade config (`~/.llamactl/nova-mcp.yaml`)
 
-`@nova/mcp` is a unified facade over the three downstream servers
+`@novaproto/mcp` is a unified facade over the three downstream servers
 (`@llamactl/mcp`, `@sirius/mcp`, `@embersynth/mcp`). The facade reads
 a YAML config at `~/.llamactl/nova-mcp.yaml` (overridable via
 `NOVA_MCP_CONFIG`) that declares each downstream's transport.
@@ -211,7 +211,7 @@ availability:
   and reports per-node reachability; fails-soft so one flaky URL
   doesn't poison the report.
 - `nova.ops.cost.snapshot` — rolls up usage + pricing into a cost
-  report (via `@nova/mcp-shared::readUsage`/`loadPricing`).
+  report (via `@novaproto/mcp-shared::readUsage`/`loadPricing`).
 - `nova.operator.plan` — natural-language goal → JSON plan of MCP
   tool calls; stub + LLM executor modes, injectable via
   `buildNovaMcpServer({ plannerExecutor })`.
@@ -276,13 +276,13 @@ facade; the two coexist as siblings.
 
 - Importing from `@llamactl/*`, `@sirius/*`, or `@embersynth/*` —
   Nova is the dependency, not the dependent.
-- Adding runtime deps to `@nova/contracts`. It's schemas +
+- Adding runtime deps to `@novaproto/contracts`. It's schemas +
   interfaces; no HTTP, no SDK wrappers, no file I/O.
 - Committing `.env` or secrets.
 - `z.record(z.unknown())` (Zod 3 shape — compile-errors in Zod 4).
 - Cross-package **relative** imports (`../../contracts/src/...`). The
   `no-cross-package-relative` lint guard fails the build on these;
-  import the package by name (`@nova/contracts`) instead. The internal
+  import the package by name (`@novaproto/contracts`) instead. The internal
   `workspace:*` deps are deliberate — `bun publish` rewrites them to a
   concrete version, so they do not leak to consumers.
 

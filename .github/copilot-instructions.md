@@ -7,12 +7,12 @@ Condensed digest. The authoritative rules live in [`AGENTS.md`](../AGENTS.md).
 AI provider SDK + MCP server scaffolding. Monorepo of three
 packages:
 
-- `@nova/contracts` — Zod schemas + TS interfaces for chat,
+- `@novaproto/contracts` — Zod schemas + TS interfaces for chat,
   embeddings, models, health, stream, usage. `AiProvider` interface.
   OpenAI-compat adapter factory.
-- `@nova/mcp-shared` — audit sink, content envelopes, usage sink +
+- `@novaproto/mcp-shared` — audit sink, content envelopes, usage sink +
   reader for MCP servers.
-- `@nova/mcp` — unified operator MCP facade (planner, cost
+- `@novaproto/mcp` — unified operator MCP facade (planner, cost
   snapshot).
 
 Consumers (llamactl, sirius-gateway, embersynth) pull Nova via
@@ -32,7 +32,7 @@ Consumers (llamactl, sirius-gateway, embersynth) pull Nova via
   `.partial()`, `z.discriminatedUnion`.
 - **`file:../sibling` between Nova packages**, never `workspace:*`
   (breaks external consumers).
-- **`@nova/contracts` has zero runtime deps.** Schemas + interfaces.
+- **`@novaproto/contracts` has zero runtime deps.** Schemas + interfaces.
 - **Bun** for all commands.
 - **English** identifiers only.
 - **No comments for what.** Comments for WHY.
@@ -55,6 +55,6 @@ packages/
 
 ## Schema change = semver event
 
-Editing a schema in `@nova/contracts` is a wire-shape change. Bump
+Editing a schema in `@novaproto/contracts` is a wire-shape change. Bump
 the package version + note in the PR body which consumers need a
 lockfile refresh (llamactl, sirius-gateway, embersynth).

@@ -20,8 +20,8 @@ import { dirname, join } from "node:path";
 
 export interface UsageWriteOptions {
   /** Any object that matches UsageRecordSchema shape from
-   *  `@nova/contracts`. Kept as `unknown` here so mcp-shared doesn't
-   *  need @nova/contracts as a dep — the sink is a byte writer, the
+   *  `@novaproto/contracts`. Kept as `unknown` here so mcp-shared doesn't
+   *  need @novaproto/contracts as a dep — the sink is a byte writer, the
    *  schema is enforced at the adapter boundary. */
   record: unknown;
   /** Override the usage directory (tests). */
@@ -31,9 +31,9 @@ export interface UsageWriteOptions {
 }
 
 export function defaultUsageDir(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env['LLAMACTL_USAGE_DIR']?.trim();
+  const override = env["LLAMACTL_USAGE_DIR"]?.trim();
   if (override) return override;
-  const devStorage = env['DEV_STORAGE']?.trim();
+  const devStorage = env["DEV_STORAGE"]?.trim();
   const base = devStorage && devStorage.length > 0 ? devStorage : join(homedir(), ".llamactl");
   return join(base, "usage");
 }

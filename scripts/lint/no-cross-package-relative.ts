@@ -36,7 +36,7 @@ const SPECIFIER_PATTERN = new RegExp(SPECIFIER, "g");
 // pattern above does not see it — yet it has the same failure mode: the sibling
 // package source does not exist in a published install layout, so the path
 // resolves to nothing and the module throws on import. Resolve via the sibling's
-// @nova/* package (import.meta.resolve / require.resolve) instead.
+// @novaproto/* package (import.meta.resolve / require.resolve) instead.
 //
 // We match a path-builder call (resolve/join/pathResolve/path.join/path.resolve)
 // that contains an import.meta.dir/__dirname anchor, at least one ".." climb
@@ -134,7 +134,7 @@ function main(): void {
   console.error(
     `error: found ${String(count)} cross-package escape${count === 1 ? "" : "s"} ` +
       `(relative import or import.meta.dir/__dirname path-climb into a sibling package); ` +
-      `resolve via the sibling's @nova/* package specifier instead`,
+      `resolve via the sibling's @novaproto/* package specifier instead`,
   );
   process.exit(1);
 }

@@ -1,6 +1,6 @@
 name: release
 
-# Publishes the @nova/* packages to npm.
+# Publishes the @novaproto/* packages to npm.
 #
 # PREREQUISITES (one-time, manual):
 #   1. The @nova npm org/scope exists and the NPM_TOKEN repo secret is an
@@ -9,7 +9,7 @@ name: release
 #      package is private by default; the automation token must be allowed to
 #      publish public packages under @nova).
 #
-# The @nova/* packages are built to plain JS + .d.ts (tsc --build) and are
+# The @novaproto/* packages are built to plain JS + .d.ts (tsc --build) and are
 # node-portable; they are published for Node and Bun consumers alike.
 #
 # Default is a DRY RUN (pack only). Publishing happens on a v* tag, or via
@@ -63,7 +63,7 @@ jobs:
             contracts \
             mcp-shared \
             mcp ; do
-            echo "::group::publish @nova/${pkg}"
+            echo "::group::publish @novaproto/${pkg}"
             ( cd "packages/${pkg}" && bun publish --access public )
             echo "::endgroup::"
           done
@@ -73,7 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           for pkg in contracts mcp-shared mcp ; do
-            echo "::group::pack @nova/${pkg}"
+            echo "::group::pack @novaproto/${pkg}"
             ( cd "packages/${pkg}" && bun pm pack --dry-run )
             echo "::endgroup::"
           done

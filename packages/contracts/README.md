@@ -1,4 +1,4 @@
-# @nova/contracts
+# @novaproto/contracts
 
 Canonical AI-provider contracts shared across the llamactl family
 (llamactl, sirius-gateway, embersynth): chat, embeddings, models,
@@ -11,13 +11,13 @@ dependencies and runs on Node.js and Bun alike.
 ## Install
 
 ```sh
-npm install @nova/contracts
+npm install @novaproto/contracts
 ```
 
 ## Usage
 
 ```ts
-import { type AiProvider, type UnifiedAiRequest } from "@nova/contracts";
+import { type AiProvider, type UnifiedAiRequest } from "@novaproto/contracts";
 ```
 
 Schemas are authored with [zod](https://github.com/colinhacks/zod);

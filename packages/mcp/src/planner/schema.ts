@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * Planner data shapes. Separated from the tool-registration layer so
  * tests can assert on pure functions without booting a full
- * McpServer. Imported by `@nova/mcp` when the `nova.operator.plan`
+ * McpServer. Imported by `@novaproto/mcp` when the `nova.operator.plan`
  * tool is wired in (N.4.2+).
  *
  * Hard-cap plan length: 20 steps. Real operator flows rarely need

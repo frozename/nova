@@ -9,7 +9,7 @@ import { stringify as stringifyYaml } from "yaml";
 import { buildNovaMcpServer } from "../src/server.js";
 
 /**
- * Smoke test for @nova/mcp. Boots the facade over the SDK's
+ * Smoke test for @novaproto/mcp. Boots the facade over the SDK's
  * InMemoryTransport, exercises `ops.overview` against a tempdir-scoped
  * trio of YAMLs, and verifies `ops.healthcheck` fails soft when a
  * gateway endpoint is unreachable.
@@ -113,7 +113,7 @@ function auditLines(): Record<string, unknown>[] {
   return out;
 }
 
-describe("@nova/mcp facade", () => {
+describe("@novaproto/mcp facade", () => {
   test("listTools advertises the ops + operator.plan tools", async () => {
     const client = await connected();
     const list = await client.listTools();
@@ -151,7 +151,7 @@ describe("@nova/mcp facade", () => {
 
     const audits = auditLines();
     expect(audits).toHaveLength(1);
-    expect(audits[0]!['tool']).toBe("nova.ops.overview");
+    expect(audits[0]!["tool"]).toBe("nova.ops.overview");
   });
 
   test("nova.ops.overview surfaces empty sections when files are absent", async () => {
@@ -243,6 +243,6 @@ describe("@nova/mcp facade", () => {
 
     const audits = auditLines();
     expect(audits).toHaveLength(1);
-    expect(audits[0]!['tool']).toBe("nova.ops.healthcheck");
+    expect(audits[0]!["tool"]).toBe("nova.ops.healthcheck");
   });
 });
