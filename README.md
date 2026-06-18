@@ -114,7 +114,7 @@ audit/envelope layer.
 
 ## Consuming Nova
 
-Nova publishes to npm under the `@nova` scope. Each package builds to
+Nova publishes to npm under the `@novaproto` scope. Each package builds to
 plain JavaScript + `.d.ts` (`tsc --build`), so it is **node-portable** —
 consumers do not need the Bun runtime. Bun is the development and CI
 runtime; the published artifacts run anywhere Node does.

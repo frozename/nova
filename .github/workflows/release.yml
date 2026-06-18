@@ -3,11 +3,11 @@ name: release
 # Publishes the @novaproto/* packages to npm.
 #
 # PREREQUISITES (one-time, manual):
-#   1. The @nova npm org/scope exists and the NPM_TOKEN repo secret is an
+#   1. The @novaproto npm org/scope exists and the NPM_TOKEN repo secret is an
 #      automation token with publish rights to it.
 #   2. Each package already carries `publishConfig.access: public` (a scoped
 #      package is private by default; the automation token must be allowed to
-#      publish public packages under @nova).
+#      publish public packages under @novaproto).
 #
 # The @novaproto/* packages are built to plain JS + .d.ts (tsc --build) and are
 # node-portable; they are published for Node and Bun consumers alike.
@@ -56,7 +56,7 @@ jobs:
           set -euo pipefail
           # bun publish rewrites workspace:* -> the concrete version at publish
           # time. Order: leaves first, then dependents.
-          #   contracts  -> (no @nova deps)
+          #   contracts  -> (no @novaproto deps)
           #   mcp-shared -> contracts
           #   mcp        -> contracts + mcp-shared
           for pkg in \

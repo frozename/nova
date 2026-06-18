@@ -16,7 +16,7 @@ Nova is an AI-provider SDK + MCP server scaffolding:
 - `@novaproto/mcp` — unified operator MCP facade. Consumer of the two
   above.
 
-Nova publishes to npm under the `@nova` scope; sibling repos
+Nova publishes to npm under the `@novaproto` scope; sibling repos
 (`llamactl`, `sirius-gateway`, `embersynth`, and anything else built
 on top) consume it via a real `^version` range. **Nova does not know
 about its consumers.** Resist adding llamactl/sirius/embersynth-specific
