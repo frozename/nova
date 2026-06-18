@@ -8,6 +8,7 @@ import { readUsage } from "../src/usage-reader.js";
 let dir = "";
 
 function write(name: string, lines: (Record<string, unknown> | string)[]): void {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- writes into the test's own mkdtempSync temp dir; name is a test literal.
   writeFileSync(
     join(dir, name),
     lines.map((l) => (typeof l === "string" ? l : JSON.stringify(l))).join("\n") + "\n",
@@ -97,7 +98,9 @@ describe("readUsage", () => {
   });
 
   test("non-.jsonl files and non-conforming filenames are skipped", () => {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- writes into the test's own temp dir.
     writeFileSync(join(dir, "README.md"), "hello");
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- writes into the test's own temp dir.
     writeFileSync(join(dir, "openai.jsonl"), "{}"); // no date suffix
     write("openai-2026-04-17.jsonl", [{ provider: "openai", model: "m" }]);
     const res = readUsage({ dir });

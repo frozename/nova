@@ -5,6 +5,12 @@ import { join } from "node:path";
 
 import { appendUsage, appendUsageBackground, defaultUsageDir } from "../src/usage.js";
 
+interface UsageLine {
+  ts?: string;
+  model?: string;
+  total_tokens?: number;
+}
+
 let dir = "";
 
 beforeEach(() => {
@@ -16,7 +22,7 @@ afterEach(() => {
 
 describe("appendUsage", () => {
   test("writes one JSONL line per call, rotated by (provider, day)", () => {
-    const now = () => new Date("2026-04-18T12:00:00Z");
+    const now = (): Date => new Date("2026-04-18T12:00:00Z");
     appendUsage({
       dir,
       now,
@@ -60,13 +66,15 @@ describe("appendUsage", () => {
       },
     });
 
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- reads back the test's own mkdtempSync temp dir.
     const files = readdirSync(dir).sort();
     expect(files).toEqual(["anthropic-2026-04-18.jsonl", "openai-2026-04-18.jsonl"]);
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- reads a file in the test's own temp dir.
     const openaiLines = readFileSync(join(dir, "openai-2026-04-18.jsonl"), "utf8")
       .trim()
       .split("\n");
     expect(openaiLines).toHaveLength(2);
-    const first = JSON.parse(openaiLines[0]!);
+    const first = JSON.parse(openaiLines[0]!) as UsageLine;
     expect(first.model).toBe("gpt-4o-mini");
     expect(first.total_tokens).toBe(15);
   });
@@ -100,6 +108,7 @@ describe("appendUsage", () => {
         latency_ms: 0,
       },
     });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- reads back the test's own temp dir.
     expect(readdirSync(dir).sort()).toEqual(["openai-2026-04-18.jsonl", "openai-2026-04-19.jsonl"]);
   });
 
@@ -118,7 +127,8 @@ describe("appendUsage", () => {
         latency_ms: 0,
       },
     });
-    const line = JSON.parse(readFileSync(path, "utf8").trim());
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- reads the file path returned by appendUsage, rooted in the test's temp dir.
+    const line = JSON.parse(readFileSync(path, "utf8").trim()) as UsageLine;
     expect(line.ts).toBe("2026-04-18T12:00:00.000Z");
   });
 
@@ -136,7 +146,8 @@ describe("appendUsage", () => {
         latency_ms: 0,
       },
     });
-    const line = JSON.parse(readFileSync(path, "utf8").trim());
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- reads the file path returned by appendUsage, rooted in the test's temp dir.
+    const line = JSON.parse(readFileSync(path, "utf8").trim()) as UsageLine;
     expect(line.ts).toBe("2020-01-01T00:00:00Z");
   });
 
@@ -163,6 +174,7 @@ describe("appendUsage", () => {
         latency_ms: 0,
       },
     });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- reads back the test's own temp dir.
     const files = readdirSync(dir);
     // Slash got replaced with underscore; the file lives inside dir,
     // not two levels up.

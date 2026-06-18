@@ -33,7 +33,8 @@ import { parse as parseYaml } from "yaml";
 export function defaultPricingDir(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.LLAMACTL_PRICING_DIR?.trim();
   if (override) return override;
-  const base = env.DEV_STORAGE?.trim() || join(homedir(), ".llamactl");
+  const devStorage = env.DEV_STORAGE?.trim();
+  const base = devStorage && devStorage.length > 0 ? devStorage : join(homedir(), ".llamactl");
   return join(base, "pricing");
 }
 
@@ -52,12 +53,15 @@ export function loadPricing(opts: LoadPricingOptions = {}): LoadPricingResult {
   const catalog: PricingCatalog = new Map();
   const filesLoaded: string[] = [];
   const malformedFiles: LoadPricingResult["malformedFiles"] = [];
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- pricing dir is an internal config path (LLAMACTL_PRICING_DIR / DEV_STORAGE / ~/.llamactl or test-injected), not user request input.
   if (!existsSync(dir)) return { catalog, filesLoaded, malformedFiles };
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- same internal pricing dir as the existsSync above.
   for (const name of readdirSync(dir).sort()) {
     if (!name.endsWith(".yaml") && !name.endsWith(".yml")) continue;
     const path = join(dir, name);
     let raw: string;
     try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is join(internal pricingDir, name) where name came from readdirSync of that same internal dir; not attacker-controlled.
       raw = readFileSync(path, "utf8");
     } catch (err) {
       malformedFiles.push({ path, message: (err as Error).message });

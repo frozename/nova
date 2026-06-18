@@ -8,6 +8,7 @@ import { computeCost, estimateCostUsd, findModelPricing, loadPricing } from "../
 let dir = "";
 
 function writeFile(name: string, body: string): void {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- writes into the test's own mkdtempSync temp dir; name is a test literal.
   writeFileSync(join(dir, name), body);
 }
 

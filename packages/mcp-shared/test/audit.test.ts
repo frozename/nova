@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { appendAudit, defaultAuditDir } from "../src/audit.js";
+import { appendAudit, type AuditRecord, defaultAuditDir } from "../src/audit.js";
 import { toTextContent } from "../src/content.js";
 
 let dir = "";
@@ -17,26 +17,29 @@ afterEach(() => {
 
 describe("appendAudit", () => {
   test("writes one JSONL record per call into <server>-<date>.jsonl", () => {
-    const now = () => new Date("2026-04-18T12:00:00Z");
+    const now = (): Date => new Date("2026-04-18T12:00:00Z");
     appendAudit({ dir, server: "llamactl", tool: "foo", input: { a: 1 }, now });
     appendAudit({ dir, server: "llamactl", tool: "bar", input: { b: 2 }, dryRun: true, now });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test reads back a temp dir it created via mkdtempSync; path is test-local.
     const files = readdirSync(dir);
     expect(files).toEqual(["llamactl-2026-04-18.jsonl"]);
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- reads a file in the test's own temp dir.
     const body = readFileSync(join(dir, files[0]!), "utf8");
     const lines = body.trim().split("\n");
     expect(lines).toHaveLength(2);
-    const recs = lines.map((l) => JSON.parse(l));
-    expect(recs[0].tool).toBe("foo");
-    expect(recs[0].dryRun).toBe(false);
-    expect(recs[1].tool).toBe("bar");
-    expect(recs[1].dryRun).toBe(true);
-    expect(recs[1].input).toEqual({ b: 2 });
+    const recs = lines.map((l) => JSON.parse(l) as AuditRecord);
+    expect(recs[0]?.tool).toBe("foo");
+    expect(recs[0]?.dryRun).toBe(false);
+    expect(recs[1]?.tool).toBe("bar");
+    expect(recs[1]?.dryRun).toBe(true);
+    expect(recs[1]?.input).toEqual({ b: 2 });
   });
 
   test("separates records by server slug", () => {
-    const now = () => new Date("2026-04-18T12:00:00Z");
+    const now = (): Date => new Date("2026-04-18T12:00:00Z");
     appendAudit({ dir, server: "llamactl", tool: "a", input: {}, now });
     appendAudit({ dir, server: "sirius", tool: "b", input: {}, now });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- reads back the test's own temp dir.
     const files = readdirSync(dir).sort();
     expect(files).toEqual(["llamactl-2026-04-18.jsonl", "sirius-2026-04-18.jsonl"]);
   });
