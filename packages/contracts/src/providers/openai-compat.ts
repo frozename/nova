@@ -85,6 +85,31 @@ function trimTrailingSlash(url: string): string {
 }
 
 /**
+ * Merge the adapter's base headers (content-type, auth, extraHeaders) with a
+ * per-request `init.headers`, letting the caller's headers win on a
+ * case-insensitive collision. Routing both sides through `Headers` keeps the
+ * merge correct regardless of whether the caller passed a plain record, a
+ * `Headers` instance, or a `[name, value]` tuple array — the three HeadersInit
+ * shapes. Exported for direct testing; the `AiProvider` surface is unchanged.
+ *
+ * `initHeaders` is typed as `RequestInit["headers"]` (the node-provided type)
+ * rather than the DOM-only `HeadersInit`, which is absent from this project's
+ * `ES2023` lib and degrades to `any` under the strict gate.
+ */
+export function mergeRequestHeaders(
+  baseHeaders: Record<string, string>,
+  initHeaders: RequestInit["headers"],
+): Headers {
+  const merged = new Headers(baseHeaders);
+  if (initHeaders) {
+    for (const [k, v] of new Headers(initHeaders).entries()) {
+      merged.set(k, v);
+    }
+  }
+  return merged;
+}
+
+/**
  * Finish-reason variant of {@link UnifiedStreamEvent}'s `done` arm.
  * `Extract` first narrows the discriminated union to the done member, then
  * indexes its `finish_reason`. (A bare `UnifiedStreamEvent extends … ? infer F`
@@ -195,12 +220,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
   });
 
   async function call(path: string, init: RequestInit): Promise<Response> {
-    const merged = new Headers(headers());
-    if (init.headers) {
-      for (const [k, v] of new Headers(init.headers).entries()) {
-        merged.set(k, v);
-      }
-    }
+    const merged = mergeRequestHeaders(headers(), init.headers);
     return await fetchImpl(`${base}${path}`, {
       ...init,
       headers: merged,

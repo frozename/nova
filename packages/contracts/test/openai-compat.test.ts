@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { createOpenAICompatProvider } from "../src/providers/openai-compat.js";
+import { createOpenAICompatProvider, mergeRequestHeaders } from "../src/providers/openai-compat.js";
 
 /**
  * E2E test for the OpenAI-compatible adapter. Stands up a stub
@@ -413,5 +413,71 @@ describe("openai-compat provider — onUsage callback", () => {
       void _ev;
     }
     expect(snapshots).toHaveLength(0);
+  });
+});
+
+describe("openai-compat provider — request header merge", () => {
+  const base = {
+    "content-type": "application/json",
+    authorization: "Bearer sk-test",
+  };
+
+  test("Headers instance: base auth survives, caller header is added", () => {
+    const merged = mergeRequestHeaders(base, new Headers({ "x-caller": "abc" }));
+    expect(merged.get("authorization")).toBe("Bearer sk-test");
+    expect(merged.get("content-type")).toBe("application/json");
+    expect(merged.get("x-caller")).toBe("abc");
+  });
+
+  test("tuple array: base auth survives, caller header is added", () => {
+    const merged = mergeRequestHeaders(base, [["x-caller", "xyz"]]);
+    expect(merged.get("authorization")).toBe("Bearer sk-test");
+    expect(merged.get("x-caller")).toBe("xyz");
+  });
+
+  test("caller wins on a case-insensitive collision (Headers instance)", () => {
+    // Authorization (capital A) from the caller must override the base
+    // lowercase authorization — Headers folds case, so this is one key.
+    const merged = mergeRequestHeaders(base, new Headers({ Authorization: "Bearer override" }));
+    expect(merged.get("authorization")).toBe("Bearer override");
+    // Exactly one authorization header, not two.
+    expect([...merged.keys()].filter((k) => k === "authorization")).toHaveLength(1);
+  });
+
+  test("caller wins on a case-insensitive collision (tuple array)", () => {
+    const merged = mergeRequestHeaders(base, [["Content-Type", "text/plain"]]);
+    expect(merged.get("content-type")).toBe("text/plain");
+  });
+
+  test("undefined init.headers leaves the base headers intact", () => {
+    const merged = mergeRequestHeaders(base, undefined);
+    expect(merged.get("authorization")).toBe("Bearer sk-test");
+    expect(merged.get("content-type")).toBe("application/json");
+  });
+
+  test("both auth and a caller header reach fetchImpl end-to-end", async () => {
+    let seen: Headers | undefined;
+    const p = createOpenAICompatProvider({
+      name: "cap",
+      baseUrl: "http://x/v1",
+      apiKey: "sk-e2e",
+      extraHeaders: { "x-org": "acme" },
+      fetch: ((_url: string | URL, init?: RequestInit) => {
+        seen = new Headers(init?.headers);
+        return Promise.resolve(
+          new Response(JSON.stringify({ model: "m", choices: [], usage: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }) as typeof globalThis.fetch,
+    });
+    await p.createResponse({
+      model: "m",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(seen?.get("authorization")).toBe("Bearer sk-e2e");
+    expect(seen?.get("x-org")).toBe("acme");
+    expect(seen?.get("content-type")).toBe("application/json");
   });
 });
