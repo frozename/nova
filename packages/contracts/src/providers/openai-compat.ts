@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type { AiProvider } from "../provider.js";
 import type { UnifiedAiRequest, UnifiedAiResponse } from "../schemas/chat.js";
 import type { UnifiedEmbeddingRequest, UnifiedEmbeddingResponse } from "../schemas/embeddings.js";
@@ -5,6 +7,8 @@ import type { ProviderHealth } from "../schemas/health.js";
 import type { ModelInfo } from "../schemas/models.js";
 import type { UnifiedStreamEvent } from "../schemas/stream.js";
 import type { UsageKind } from "../schemas/usage.js";
+
+import { FinishReasonSchema } from "../schemas/chat.js";
 
 /**
  * Callback fired after a successful chat or embedding round-trip
@@ -80,10 +84,47 @@ function trimTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
-/** Finish-reason variant of {@link UnifiedStreamEvent}'s `done` arm. */
-type StreamFinishReason = UnifiedStreamEvent extends { type: "done"; finish_reason: infer F }
-  ? F
-  : never;
+/**
+ * Finish-reason variant of {@link UnifiedStreamEvent}'s `done` arm.
+ * `Extract` first narrows the discriminated union to the done member, then
+ * indexes its `finish_reason`. (A bare `UnifiedStreamEvent extends … ? infer F`
+ * does NOT distribute over a concrete union, so it collapsed to `never` and
+ * silently turned every `as StreamFinishReason` into `as never`.)
+ */
+type StreamFinishReason = Extract<UnifiedStreamEvent, { type: "done" }>["finish_reason"];
+
+/**
+ * Map an upstream finish_reason string onto the canonical
+ * {@link FinishReasonSchema} enum, self-auditing against the schema's own
+ * options so a new variant can never silently pass through as an unchecked
+ * cast. Unknown / absent reasons collapse to "stop" (the safe terminal).
+ */
+function mapFinishReason(finish: string | null | undefined): StreamFinishReason {
+  return (FinishReasonSchema.options as readonly string[]).includes(finish ?? "")
+    ? (finish as StreamFinishReason)
+    : "stop";
+}
+
+/**
+ * Validation envelope for the non-streaming `.json()` boundary. The
+ * model name and token-usage block are the only fields the adapter reads
+ * for telemetry; everything else passes through untouched so the returned
+ * body keeps its full shape. `.passthrough()` keeps unknown keys; the
+ * known fields are validated, not cast. A parse failure means the usage
+ * snapshot is skipped (malformed-response path) rather than fired with
+ * garbage numbers.
+ */
+const UsageBlockSchema = z.looseObject({
+  prompt_tokens: z.number().optional(),
+  completion_tokens: z.number().optional(),
+  total_tokens: z.number().optional(),
+});
+
+const ResponseEnvelopeSchema = z.looseObject({
+  id: z.string().optional(),
+  model: z.string().optional(),
+  usage: UsageBlockSchema.optional(),
+});
 
 /** Raw OpenAI SSE chunk shape (a relaxed view of the wire payload). */
 interface WireStreamChunk {
@@ -136,7 +177,7 @@ function toChunkEvent(
           ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
         },
         ...(c.finish_reason !== undefined
-          ? { finish_reason: c.finish_reason as StreamFinishReason }
+          ? { finish_reason: mapFinishReason(c.finish_reason) }
           : {}),
       })),
     },
@@ -193,16 +234,26 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         const text = await res.text().catch(() => "");
         throw new Error(`${opts.name} ${String(res.status)}: ${text.slice(0, 500)}`);
       }
-      const raw = (await res.json()) as UnifiedAiResponse;
+      const parsed = ResponseEnvelopeSchema.safeParse(await res.json());
       const latencyMs = Date.now() - startedAt;
-      if (raw.usage) {
+      // Validate the .json() boundary instead of casting it. On a malformed
+      // envelope we skip the usage snapshot (don't fire telemetry from a shape
+      // we couldn't verify) but still return the body — the caller's response
+      // schema is the next gate.
+      const raw = (parsed.success ? parsed.data : {}) as UnifiedAiResponse;
+      const usage = parsed.success ? parsed.data.usage : undefined;
+      if (
+        usage?.prompt_tokens !== undefined &&
+        usage.completion_tokens !== undefined &&
+        usage.total_tokens !== undefined
+      ) {
         fireUsage({
           provider: opts.name,
-          model: (raw as { model?: string }).model ?? request.model,
+          model: (parsed.success ? parsed.data.model : undefined) ?? request.model,
           kind: "chat",
-          prompt_tokens: raw.usage.prompt_tokens,
-          completion_tokens: raw.usage.completion_tokens,
-          total_tokens: raw.usage.total_tokens,
+          prompt_tokens: usage.prompt_tokens,
+          completion_tokens: usage.completion_tokens,
+          total_tokens: usage.total_tokens,
           latency_ms: latencyMs,
         });
       }
@@ -288,7 +339,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
             if (!chunk.choices) continue;
             const finish = chunk.choices[0]?.finish_reason;
             if (finish) {
-              lastFinish = { type: "done", finish_reason: finish as StreamFinishReason };
+              lastFinish = { type: "done", finish_reason: mapFinishReason(finish) };
             }
             yield toChunkEvent({ ...chunk, choices: chunk.choices }, request.model);
           } catch {
@@ -311,13 +362,16 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         const text = await res.text().catch(() => "");
         throw new Error(`${opts.name} ${String(res.status)}: ${text.slice(0, 500)}`);
       }
-      const raw = (await res.json()) as UnifiedEmbeddingResponse;
+      const parsed = ResponseEnvelopeSchema.safeParse(await res.json());
       const latencyMs = Date.now() - startedAt;
-      const usage = (raw as { usage?: { prompt_tokens?: number; total_tokens?: number } }).usage;
+      // Same validate-not-cast boundary as createResponse; malformed envelope
+      // skips usage telemetry but still returns the body.
+      const raw = (parsed.success ? parsed.data : {}) as UnifiedEmbeddingResponse;
+      const usage = parsed.success ? parsed.data.usage : undefined;
       if (usage) {
         fireUsage({
           provider: opts.name,
-          model: (raw as { model?: string }).model ?? request.model,
+          model: (parsed.success ? parsed.data.model : undefined) ?? request.model,
           kind: "embedding",
           prompt_tokens: usage.prompt_tokens ?? 0,
           completion_tokens: 0,

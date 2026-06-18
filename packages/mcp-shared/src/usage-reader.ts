@@ -96,13 +96,20 @@ function inWindow(rec: Record<string, unknown>, window: TimeWindow): boolean {
 function collectFromBody(body: string, window: TimeWindow, result: UsageReadResult): void {
   for (const line of body.split("\n")) {
     if (!line) continue;
-    let rec: Record<string, unknown>;
+    let parsed: unknown;
     try {
-      rec = JSON.parse(line) as Record<string, unknown>;
+      parsed = JSON.parse(line);
     } catch {
       result.malformedLines++;
       continue;
     }
+    // A torn or non-record line (array / scalar / null) is malformed for our
+    // purposes — validate the shape rather than casting JSON.parse's `any`.
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      result.malformedLines++;
+      continue;
+    }
+    const rec = parsed as Record<string, unknown>;
     if (inWindow(rec, window)) result.records.push(rec);
   }
 }
