@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { bootDownstreamWithTransport, type Downstream } from "../src/facade/downstream.js";
+
 import type { DownstreamSpec } from "../src/facade/config.js";
+
+import { bootDownstreamWithTransport, type Downstream } from "../src/facade/downstream.js";
 import { mountProxyTools } from "../src/facade/proxy.js";
 
 /**
@@ -28,11 +30,11 @@ interface CapturedArgs {
 
 async function makeDownstream(
   name: string,
-  tools: Array<{
+  tools: {
     name: string;
     response: string;
     captured?: CapturedArgs;
-  }>,
+  }[],
 ): Promise<Downstream> {
   const server = new McpServer({ name: `fake-${name}`, version: "0.0.0" });
   for (const t of tools) {
@@ -43,14 +45,14 @@ async function makeDownstream(
         inputSchema: { value: z.string().optional() },
       },
       async (input) => {
-        if (t.captured) t.captured.last = input as Record<string, unknown>;
+        if (t.captured) t.captured.last = input;
         return { content: [{ type: "text" as const, text: t.response }] };
       },
     );
   }
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
-  return bootDownstreamWithTransport(specOf(name), clientSide);
+  return await bootDownstreamWithTransport(specOf(name), clientSide);
 }
 
 async function connectedUpstream(
@@ -69,7 +71,7 @@ async function connectedUpstream(
 }
 
 function textOf(result: unknown): string {
-  const content = (result as { content?: Array<{ type: string; text: string }> }).content ?? [];
+  const content = (result as { content?: { type: string; text: string }[] }).content ?? [];
   return content[0]?.text ?? "";
 }
 
@@ -80,10 +82,10 @@ let originalStderrWrite: typeof process.stderr.write | null = null;
 beforeEach(() => {
   stderrWrites = [];
   originalStderrWrite = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: unknown) => {
+  process.stderr.write = (chunk: unknown) => {
     stderrWrites.push(typeof chunk === "string" ? chunk : String(chunk));
     return true;
-  }) as typeof process.stderr.write;
+  };
 });
 afterEach(() => {
   if (originalStderrWrite) process.stderr.write = originalStderrWrite;
@@ -209,7 +211,7 @@ describe("facade/proxy mountProxyTools", () => {
     const { client, close } = await connectedUpstream(upstream);
     try {
       const res = await client.callTool({ name: "boom.tool", arguments: {} });
-      const err = res as { isError?: boolean; content?: Array<{ text?: string }> };
+      const err = res as { isError?: boolean; content?: { text?: string }[] };
       expect(err.isError).toBe(true);
       expect(err.content?.[0]?.text ?? "").toContain("boom");
     } finally {

@@ -1,9 +1,12 @@
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { createBearerAuth } from "./auth.js";
+
 import type { DownstreamSpec, NovaMcpConfigV1 } from "./config.js";
+
+import { createBearerAuth } from "./auth.js";
 
 /**
  * Downstream MCP client lifecycle for the `@nova/mcp` facade.
@@ -71,15 +74,15 @@ function buildTransport(spec: DownstreamSpec): Transport {
 
 export async function bootDownstream(spec: DownstreamSpec): Promise<Downstream> {
   const transport = buildTransport(spec);
-  return bootDownstreamWithTransport(spec, transport);
+  return await bootDownstreamWithTransport(spec, transport);
 }
 
 export async function bootAll(config: NovaMcpConfigV1 | null): Promise<Downstream[]> {
   if (!config) return [];
   const settled = await Promise.allSettled(config.downstreams.map((spec) => bootDownstream(spec)));
   const out: Downstream[] = [];
-  for (let i = 0; i < settled.length; i++) {
-    const outcome = settled[i]!;
+  for (const [i, element] of settled.entries()) {
+    const outcome = element;
     if (outcome.status === "fulfilled") {
       out.push(outcome.value);
     } else {

@@ -1,9 +1,12 @@
+import type { AiProvider, UnifiedAiRequest, UnifiedAiResponse } from "@nova/contracts";
+
 import { describe, expect, test } from "bun:test";
-import type { AiProvider, ChatMessage, UnifiedAiRequest, UnifiedAiResponse } from "@nova/contracts";
-import { createLlmExecutor } from "../src/planner/llm-executor.js";
+
 import type { PlannerToolDescriptor } from "../src/planner/schema.js";
-import { buildPlannerPrompt } from "../src/planner/prompt.js";
+
 import { runPlanner } from "../src/planner/executor.js";
+import { createLlmExecutor } from "../src/planner/llm-executor.js";
+import { buildPlannerPrompt } from "../src/planner/prompt.js";
 
 /**
  * Unit tests for the LLM-backed planner executor. Uses a fake
@@ -20,7 +23,7 @@ function fakeProvider(opts: {
     name: opts.name ?? "fake",
     async createResponse(req) {
       requests.push(req);
-      return opts.handler(req);
+      return await opts.handler(req);
     },
   };
   return { provider, requests };
@@ -111,7 +114,7 @@ describe("createLlmExecutor — request construction", () => {
     expect(requests).toHaveLength(1);
     const req = requests[0]!;
     expect(req.model).toBe("gpt-fake");
-    const msgs = req.messages as ChatMessage[];
+    const msgs = req.messages;
     expect(msgs[0]!.role).toBe("system");
     expect(msgs[0]!.content).toBe(systemMessage);
     expect(msgs[1]!.role).toBe("user");

@@ -9,8 +9,10 @@
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
+
 import { toTextContent } from "@nova/mcp-shared";
+import { z } from "zod";
+
 import type { Downstream } from "../facade/downstream.js";
 
 type Provenance = "llamactl" | "sirius" | "embersynth";
@@ -40,7 +42,7 @@ function parseTextContent(result: CallToolResult): unknown | undefined {
   const content = result.content;
   if (!Array.isArray(content) || content.length === 0) return undefined;
   const first = content[0];
-  if (!first || first.type !== "text" || typeof first.text !== "string") {
+  if (first?.type !== "text" || typeof first.text !== "string") {
     return undefined;
   }
   try {
@@ -130,7 +132,7 @@ export function registerUnifiedTools(server: McpServer, downstreams: Downstream[
       }
 
       // Fire every configured call in parallel.
-      const calls: Array<Promise<{ source: Provenance; entries: NormalizedEntry[] }>> = [];
+      const calls: Promise<{ source: Provenance; entries: NormalizedEntry[] }>[] = [];
       const failed: string[] = [];
       const errors: Record<string, string> = {};
 
@@ -144,12 +146,7 @@ export function registerUnifiedTools(server: McpServer, downstreams: Downstream[
           if (res.isError) {
             const msg = (() => {
               const c = res.content;
-              if (
-                Array.isArray(c) &&
-                c[0] &&
-                c[0].type === "text" &&
-                typeof c[0].text === "string"
-              ) {
+              if (Array.isArray(c) && c[0]?.type === "text" && typeof c[0].text === "string") {
                 return c[0].text;
               }
               return "downstream returned isError";
@@ -249,7 +246,7 @@ export function registerUnifiedTools(server: McpServer, downstreams: Downstream[
 
       const partial = failed.length > 0 ? { failed, errors } : undefined;
 
-      return toTextContent(partial ? { models, partial } : { models }) as CallToolResult;
+      return toTextContent(partial ? { models, partial } : { models });
     },
   );
 }

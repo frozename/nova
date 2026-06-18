@@ -1,15 +1,18 @@
-import { describe, expect, test } from "bun:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { describe, expect, test } from "bun:test";
 import { z } from "zod";
+
+import type { DownstreamSpec, NovaMcpConfigV1 } from "../src/facade/config.js";
+
 import {
   bootAll,
   bootDownstreamWithTransport,
   closeAll,
   type Downstream,
 } from "../src/facade/downstream.js";
-import type { DownstreamSpec, NovaMcpConfigV1 } from "../src/facade/config.js";
 
 /**
  * Exercises the facade's downstream lifecycle without spawning real
@@ -66,7 +69,7 @@ describe("facade/downstream bootDownstreamWithTransport", () => {
         name: "solo.ping",
         arguments: { value: "hi" },
       });
-      const content = (res as { content?: Array<{ type: string; text: string }> }).content ?? [];
+      const content = (res as { content?: { type: string; text: string }[] }).content ?? [];
       expect(content[0]?.text).toBe("echo:hi");
     } finally {
       await downstream.close();
@@ -103,18 +106,18 @@ describe("facade/downstream bootAll / closeAll", () => {
 async function bootAllViaSeam(
   config: NovaMcpConfigV1 | null,
   transportFactory: (spec: DownstreamSpec) => Transport | Promise<Transport>,
-): Promise<{ ok: Downstream[]; errors: Array<{ name: string; message: string }> }> {
+): Promise<{ ok: Downstream[]; errors: { name: string; message: string }[] }> {
   if (!config) return { ok: [], errors: [] };
   const settled = await Promise.allSettled(
     config.downstreams.map(async (spec) => {
       const tx = await transportFactory(spec);
-      return bootDownstreamWithTransport(spec, tx);
+      return await bootDownstreamWithTransport(spec, tx);
     }),
   );
   const ok: Downstream[] = [];
-  const errors: Array<{ name: string; message: string }> = [];
-  for (let i = 0; i < settled.length; i++) {
-    const outcome = settled[i]!;
+  const errors: { name: string; message: string }[] = [];
+  for (const [i, element] of settled.entries()) {
+    const outcome = element;
     if (outcome.status === "fulfilled") ok.push(outcome.value);
     else {
       const msg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
@@ -160,7 +163,7 @@ describe("facade/downstream bootAll partial-failure collection", () => {
 
     const result = await bootAllViaSeam(config, (spec) => {
       if (spec.name === "good") return goodClientSide;
-      return new BadTransport() as unknown as Transport;
+      return new BadTransport();
     });
 
     expect(result.ok).toHaveLength(1);

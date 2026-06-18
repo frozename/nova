@@ -1,8 +1,8 @@
 import type { AiProvider } from "../provider.js";
-import type { ModelInfo } from "../schemas/models.js";
-import type { ProviderHealth } from "../schemas/health.js";
 import type { UnifiedAiRequest, UnifiedAiResponse } from "../schemas/chat.js";
 import type { UnifiedEmbeddingRequest, UnifiedEmbeddingResponse } from "../schemas/embeddings.js";
+import type { ProviderHealth } from "../schemas/health.js";
+import type { ModelInfo } from "../schemas/models.js";
 import type { UnifiedStreamEvent } from "../schemas/stream.js";
 import type { UsageKind } from "../schemas/usage.js";
 
@@ -90,9 +90,9 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
   });
 
   async function call(path: string, init: RequestInit): Promise<Response> {
-    return fetchImpl(`${base}${path}`, {
+    return await fetchImpl(`${base}${path}`, {
       ...init,
-      headers: { ...headers(), ...((init.headers as Record<string, string>) ?? {}) },
+      headers: { ...headers(), ...(init.headers ?? {}) },
     });
   }
 
@@ -199,20 +199,20 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
               object?: string;
               model?: string;
               created?: number;
-              choices?: Array<{
+              choices?: {
                 index?: number;
                 delta?: {
                   role?: "assistant" | "tool";
                   content?: string | null;
-                  tool_calls?: Array<{
+                  tool_calls?: {
                     index: number;
                     id?: string;
                     type?: "function";
                     function?: { name?: string; arguments?: string };
-                  }>;
+                  }[];
                 };
                 finish_reason?: string | null;
-              }>;
+              }[];
               usage?: {
                 prompt_tokens?: number;
                 completion_tokens?: number;
@@ -324,7 +324,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         throw new Error(`${opts.name} /models ${res.status}: ${text.slice(0, 500)}`);
       }
       const raw = (await res.json()) as {
-        data?: Array<{ id?: string; created?: number; owned_by?: string }>;
+        data?: { id?: string; created?: number; owned_by?: string }[];
       };
       const now = Math.floor(Date.now() / 1000);
       return (raw.data ?? []).map((m) => ({

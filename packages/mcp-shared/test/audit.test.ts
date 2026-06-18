@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { appendAudit, defaultAuditDir } from "../src/audit.js";
 import { toTextContent } from "../src/content.js";
 
@@ -42,7 +43,7 @@ describe("appendAudit", () => {
 
   test("defaultAuditDir honors LLAMACTL_MCP_AUDIT_DIR", () => {
     expect(defaultAuditDir({ LLAMACTL_MCP_AUDIT_DIR: "/custom" })).toBe("/custom");
-    const withoutOverride = defaultAuditDir({ HOME: "/home/user" } as NodeJS.ProcessEnv);
+    const withoutOverride = defaultAuditDir({ HOME: "/home/user" });
     expect(withoutOverride).toContain("/.llamactl/mcp/audit");
   });
 });

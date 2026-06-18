@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+
 import {
-  UnifiedAiRequestSchema,
-  UnifiedAiResponseSchema,
+  type AiProvider,
   ChatMessageSchema,
   createOpenAICompatProvider,
-  type AiProvider,
+  UnifiedAiRequestSchema,
+  UnifiedAiResponseSchema,
 } from "../src/index.js";
 
 /**

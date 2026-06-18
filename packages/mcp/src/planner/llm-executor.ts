@@ -1,4 +1,5 @@
 import type { AiProvider, UnifiedAiRequest, UnifiedAiResponse } from "@nova/contracts";
+
 import type { PlannerExecutor, PlannerExecutorInput, PlannerExecutorResult } from "./executor.js";
 
 /**
@@ -113,7 +114,7 @@ export function createLlmExecutor(opts: CreateLlmExecutorOptions): PlannerExecut
         const finish = response.choices[0]?.finish_reason ?? "unknown";
         const textFallback =
           typeof response.choices[0]?.message.content === "string"
-            ? (response.choices[0].message.content as string).slice(0, 300)
+            ? response.choices[0].message.content.slice(0, 300)
             : "";
         return {
           ok: false,

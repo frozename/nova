@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+
 import { createOpenAICompatProvider } from "../src/providers/openai-compat.js";
 
 /**
@@ -236,15 +237,15 @@ describe("openai-compat provider", () => {
       ): e is {
         type: "chunk";
         chunk: {
-          choices: Array<{
+          choices: {
             delta: {
-              tool_calls?: Array<{
+              tool_calls?: {
                 index: number;
                 id?: string;
                 function?: { name?: string; arguments?: string };
-              }>;
+              }[];
             };
-          }>;
+          }[];
         };
       } => (e as { type?: string }).type === "chunk",
     );
@@ -264,7 +265,7 @@ describe("openai-compat provider", () => {
 
 describe("openai-compat provider — onUsage callback", () => {
   test("fires on non-streaming chat with provider + model + token counts", async () => {
-    const snapshots: Array<Record<string, unknown>> = [];
+    const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
       baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
@@ -315,7 +316,7 @@ describe("openai-compat provider — onUsage callback", () => {
       },
     });
     try {
-      const snapshots: Array<Record<string, unknown>> = [];
+      const snapshots: Record<string, unknown>[] = [];
       const p = createOpenAICompatProvider({
         name: "no-usage",
         baseUrl: `http://127.0.0.1:${noUsagePort}/v1`,
@@ -351,7 +352,7 @@ describe("openai-compat provider — onUsage callback", () => {
   });
 
   test("fires on embeddings with kind: embedding + completion_tokens zeroed", async () => {
-    const snapshots: Array<Record<string, unknown>> = [];
+    const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
       baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
@@ -371,7 +372,7 @@ describe("openai-compat provider — onUsage callback", () => {
   });
 
   test("fires on streaming when upstream emits a usage frame", async () => {
-    const snapshots: Array<Record<string, unknown>> = [];
+    const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
       baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
@@ -396,7 +397,7 @@ describe("openai-compat provider — onUsage callback", () => {
   });
 
   test("does NOT fire on streaming when upstream omits the usage frame", async () => {
-    const snapshots: Array<Record<string, unknown>> = [];
+    const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
       baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,

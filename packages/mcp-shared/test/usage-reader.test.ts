@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { readUsage } from "../src/usage-reader.js";
 
 let dir = "";
 
-function write(name: string, lines: Array<Record<string, unknown> | string>): void {
+function write(name: string, lines: (Record<string, unknown> | string)[]): void {
   writeFileSync(
     join(dir, name),
     lines.map((l) => (typeof l === "string" ? l : JSON.stringify(l))).join("\n") + "\n",

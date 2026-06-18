@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_ALLOWLIST, filterTools, type AllowlistConfig } from "../src/planner/allowlist.js";
+
 import type { PlannerToolDescriptor } from "../src/planner/schema.js";
+
+import { type AllowlistConfig, DEFAULT_ALLOWLIST, filterTools } from "../src/planner/allowlist.js";
 
 function tool(name: string, tier: PlannerToolDescriptor["tier"] = "read"): PlannerToolDescriptor {
   return {

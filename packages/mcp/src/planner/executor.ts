@@ -1,6 +1,6 @@
-import { PlanSchema, type Plan, type PlannerToolDescriptor } from "./schema.js";
-import { DEFAULT_ALLOWLIST, filterTools, type AllowlistConfig } from "./allowlist.js";
+import { type AllowlistConfig, DEFAULT_ALLOWLIST, filterTools } from "./allowlist.js";
 import { buildPlannerPrompt } from "./prompt.js";
+import { type Plan, type PlannerToolDescriptor, PlanSchema } from "./schema.js";
 
 /**
  * Executor seam for `nova.operator.plan`.

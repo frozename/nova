@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
+
 import { buildNovaMcpServer } from "../src/server.js";
 
 /**
@@ -89,14 +90,14 @@ async function connected() {
 }
 
 function textOf(result: unknown): string {
-  const content = (result as { content?: Array<{ type: string; text: string }> }).content ?? [];
+  const content = (result as { content?: { type: string; text: string }[] }).content ?? [];
   return content[0]?.text ?? "";
 }
 
-function auditLines(): Array<Record<string, unknown>> {
+function auditLines(): Record<string, unknown>[] {
   if (!existsSync(auditDir)) return [];
   const files = readdirSync(auditDir).filter((f) => f.startsWith("nova-"));
-  const out: Array<Record<string, unknown>> = [];
+  const out: Record<string, unknown>[] = [];
   for (const f of files) {
     const body = readFileSync(join(auditDir, f), "utf8");
     for (const line of body.trim().split("\n")) if (line) out.push(JSON.parse(line));
@@ -126,10 +127,10 @@ describe("@nova/mcp facade", () => {
     const parsed = JSON.parse(textOf(result)) as {
       context: string | null;
       cluster: string | null;
-      agents: Array<{ name: string }>;
-      gateways: Array<{ name: string; provider: string | null }>;
-      siriusProviders: Array<{ name: string; kind: string }>;
-      embersynthProfiles: Array<{ id: string }>;
+      agents: { name: string }[];
+      gateways: { name: string; provider: string | null }[];
+      siriusProviders: { name: string; kind: string }[];
+      embersynthProfiles: { id: string }[];
       syntheticModels: Record<string, string>;
     };
     expect(parsed.context).toBe("default");
@@ -183,8 +184,8 @@ describe("@nova/mcp facade", () => {
       arguments: { timeoutMs: 500 },
     });
     const parsed = JSON.parse(textOf(result)) as {
-      gateways: Array<{ name: string; ok: boolean; status: number }>;
-      siriusProviders: Array<{ name: string; ok: boolean; status: number }>;
+      gateways: { name: string; ok: boolean; status: number }[];
+      siriusProviders: { name: string; ok: boolean; status: number }[];
     };
     expect(parsed.gateways).toHaveLength(1);
     expect(parsed.gateways[0]!.name).toBe("sirius-primary");

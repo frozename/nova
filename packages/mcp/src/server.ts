@@ -1,17 +1,19 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { appendAudit, toTextContent } from "@nova/mcp-shared";
 import { existsSync, readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { appendAudit, toTextContent } from "@nova/mcp-shared";
+
+import type { AllowlistConfig } from "./planner/allowlist.js";
+import type { PlannerToolDescriptor } from "./planner/schema.js";
+
+import { computeCostSnapshot } from "./cost/snapshot.js";
 import {
   defaultEmbersynthConfigPath,
   defaultKubeconfigPath,
   defaultSiriusProvidersPath,
 } from "./paths.js";
-import { runPlanner, type PlannerExecutor } from "./planner/executor.js";
-import type { AllowlistConfig } from "./planner/allowlist.js";
-import type { PlannerToolDescriptor } from "./planner/schema.js";
-import { computeCostSnapshot } from "./cost/snapshot.js";
+import { type PlannerExecutor, runPlanner } from "./planner/executor.js";
 
 /**
  * `@nova/mcp` — unified MCP facade across the llamactl family.
@@ -62,31 +64,31 @@ interface KubeconfigNode {
 
 interface KubeconfigShape {
   currentContext?: string;
-  contexts?: Array<{ name: string; cluster: string }>;
-  clusters?: Array<{ name: string; nodes?: KubeconfigNode[] }>;
+  contexts?: { name: string; cluster: string }[];
+  clusters?: { name: string; nodes?: KubeconfigNode[] }[];
 }
 
 interface SiriusProvidersShape {
-  providers?: Array<{
+  providers?: {
     name: string;
     kind: string;
     baseUrl?: string;
     apiKeyRef?: string;
     displayName?: string;
-  }>;
+  }[];
 }
 
 interface EmbersynthShape {
   server?: { host?: string; port?: number };
-  nodes?: Array<{
+  nodes?: {
     id: string;
     label?: string;
     enabled?: boolean;
     capabilities?: string[];
     tags?: string[];
     priority?: number;
-  }>;
-  profiles?: Array<{ id: string; label?: string }>;
+  }[];
+  profiles?: { id: string; label?: string }[];
   syntheticModels?: Record<string, string>;
 }
 
@@ -103,7 +105,9 @@ async function probeEndpoint(
   timeoutMs = 1500,
 ): Promise<{ ok: boolean; status: number; error?: string }> {
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const timer = setTimeout(() => {
+    ctl.abort();
+  }, timeoutMs);
   try {
     const res = await fetch(url, { signal: ctl.signal });
     return { ok: res.ok, status: res.status };

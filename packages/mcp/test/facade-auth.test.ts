@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { createBearerAuth, type FetchFn } from "../src/facade/auth.js";
 
 /**
@@ -57,7 +58,7 @@ describe("facade/auth createBearerAuth", () => {
 
   test("stamps Authorization header when caller passes array of pairs", async () => {
     const rec = makeRecorder();
-    const caller: Array<[string, string]> = [["X-Other", "keep"]];
+    const caller: [string, string][] = [["X-Other", "keep"]];
     const { fetch: wrapped } = createBearerAuth("tok", rec.fetch);
     await wrapped("http://example.test/", { headers: caller });
     expect(getAuthHeader(rec.calls[0]!.init)).toBe("Bearer tok");

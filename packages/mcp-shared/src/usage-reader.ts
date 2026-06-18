@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { defaultUsageDir } from "./usage.js";
 
 /**
@@ -31,7 +32,7 @@ export interface UsageReadOptions {
 }
 
 export interface UsageReadResult {
-  records: Array<Record<string, unknown>>;
+  records: Record<string, unknown>[];
   /** Files that were read. Useful for surfacing "we scanned N files"
    *  in the snapshot output. */
   filesScanned: string[];

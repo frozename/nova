@@ -11,7 +11,7 @@
  * without a cast.
  */
 export interface TextContentEnvelope {
-  content: Array<{ type: "text"; text: string }>;
+  content: { type: "text"; text: string }[];
   [key: string]: unknown;
 }
 

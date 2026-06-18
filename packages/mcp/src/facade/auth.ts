@@ -29,7 +29,7 @@ export interface BearerAuth {
 function cloneHeadersWithAuth(headers: RequestInit["headers"] | undefined, token: string): Headers {
   const merged = new Headers();
   if (headers instanceof Headers) {
-    headers.forEach((value, key) => merged.set(key, value));
+    for (const [key, value] of headers.entries()) merged.set(key, value);
   } else if (Array.isArray(headers)) {
     for (const [key, value] of headers) {
       if (key !== undefined && value !== undefined) merged.set(key, value);

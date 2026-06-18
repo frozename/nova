@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
+
+import type { PlannerToolDescriptor } from "../src/planner/schema.js";
+
+import { DEFAULT_ALLOWLIST } from "../src/planner/allowlist.js";
 import {
-  runPlanner,
   type PlannerExecutor,
   type PlannerExecutorInput,
+  runPlanner,
 } from "../src/planner/executor.js";
-import { DEFAULT_ALLOWLIST } from "../src/planner/allowlist.js";
-import type { PlannerToolDescriptor } from "../src/planner/schema.js";
 
 /**
  * Red-team suite for the planner's safety layers. Asserts every

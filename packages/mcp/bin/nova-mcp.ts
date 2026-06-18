@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { buildNovaMcpServer } from "../src/server.js";
+
 import { loadConfig } from "../src/facade/config.js";
 import { bootAll, closeAll, type Downstream } from "../src/facade/downstream.js";
 import { mountProxyTools } from "../src/facade/proxy.js";
+import { buildNovaMcpServer } from "../src/server.js";
 import { registerUnifiedTools } from "../src/tools/unified.js";
 
 /**

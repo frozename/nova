@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { computeCostSnapshot } from "../src/cost/snapshot.js";
 import { buildNovaMcpServer } from "../src/server.js";
 
@@ -11,7 +12,7 @@ let dir = "";
 let auditDir = "";
 const originalEnv = { ...process.env };
 
-function writeFile(name: string, records: Array<Record<string, unknown>>): void {
+function writeFile(name: string, records: Record<string, unknown>[]): void {
   writeFileSync(join(dir, name), records.map((r) => JSON.stringify(r)).join("\n") + "\n");
 }
 
@@ -404,7 +405,7 @@ async function connected() {
 }
 
 function textOf(result: unknown): string {
-  const content = (result as { content?: Array<{ type: string; text: string }> }).content ?? [];
+  const content = (result as { content?: { type: string; text: string }[] }).content ?? [];
   return content[0]?.text ?? "";
 }
 
@@ -441,8 +442,8 @@ describe("nova.ops.cost.snapshot — MCP tool surface", () => {
     const parsed = JSON.parse(textOf(result)) as {
       totalRequests: number;
       totalTokens: number;
-      byProvider: Array<{ key: string; totalTokens: number }>;
-      byModel: Array<{ key: string }>;
+      byProvider: { key: string; totalTokens: number }[];
+      byModel: { key: string }[];
     };
     expect(parsed.totalRequests).toBe(1);
     expect(parsed.totalTokens).toBe(15);

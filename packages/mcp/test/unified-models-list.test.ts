@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { bootDownstreamWithTransport, type Downstream } from "../src/facade/downstream.js";
+
 import type { DownstreamSpec } from "../src/facade/config.js";
+
+import { bootDownstreamWithTransport, type Downstream } from "../src/facade/downstream.js";
 import { registerUnifiedTools } from "../src/tools/unified.js";
 
 /**
@@ -38,7 +40,7 @@ async function makeDownstream(name: string, tools: ToolStub[]): Promise<Downstre
         },
       },
       async (input) => {
-        if (t.captured) t.captured.last = input as Record<string, unknown>;
+        if (t.captured) t.captured.last = input;
         if (t.throws) {
           throw new Error(t.throws);
         }
@@ -50,7 +52,7 @@ async function makeDownstream(name: string, tools: ToolStub[]): Promise<Downstre
   }
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
-  return bootDownstreamWithTransport(specOf(name), clientSide);
+  return await bootDownstreamWithTransport(specOf(name), clientSide);
 }
 
 async function connectedUpstream(
@@ -69,7 +71,7 @@ async function connectedUpstream(
 }
 
 function parseResult(result: unknown): Record<string, unknown> {
-  const content = (result as { content?: Array<{ type: string; text: string }> }).content ?? [];
+  const content = (result as { content?: { type: string; text: string }[] }).content ?? [];
   const text = content[0]?.text ?? "";
   return JSON.parse(text) as Record<string, unknown>;
 }

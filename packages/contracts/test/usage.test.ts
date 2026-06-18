@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { UsageRecordSchema, type UsageRecord } from "../src/index.js";
+
+import { type UsageRecord, UsageRecordSchema } from "../src/index.js";
 
 describe("UsageRecordSchema", () => {
   test("parses a minimal valid record", () => {

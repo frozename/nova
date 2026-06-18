@@ -1,14 +1,14 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { parse as parseYaml } from "yaml";
 import {
-  ProviderPricingSchema,
   type ModelPricing,
   type PricingCatalog,
   type ProviderPricing,
+  ProviderPricingSchema,
   type UsageRecord,
 } from "@nova/contracts";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 
 /**
  * File-backed pricing catalog + cost estimator.
@@ -44,7 +44,7 @@ export interface LoadPricingOptions {
 export interface LoadPricingResult {
   catalog: PricingCatalog;
   filesLoaded: string[];
-  malformedFiles: Array<{ path: string; message: string }>;
+  malformedFiles: { path: string; message: string }[];
 }
 
 export function loadPricing(opts: LoadPricingOptions = {}): LoadPricingResult {

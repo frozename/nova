@@ -42,7 +42,7 @@ function usageFilePath(dir: string, provider: string, now: Date): string {
   const m = String(now.getUTCMonth() + 1).padStart(2, "0");
   const d = String(now.getUTCDate()).padStart(2, "0");
   // Sanitize: provider slug must not contain path separators.
-  const slug = provider.replace(/[^a-z0-9._-]/gi, "_");
+  const slug = provider.replaceAll(/[^a-z0-9._-]/gi, "_");
   return join(dir, `${slug}-${y}-${m}-${d}.jsonl`);
 }
 

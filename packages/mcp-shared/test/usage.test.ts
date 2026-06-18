@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { appendUsage, appendUsageBackground, defaultUsageDir } from "../src/usage.js";
 
 let dir = "";
@@ -174,12 +175,12 @@ describe("appendUsageBackground", () => {
     // Point at a nonexistent, unwritable parent; usage.ts does
     // mkdirSync recursive which should succeed on tmpdir. Simulate
     // failure by passing a bogus record with no provider.
-    expect(() =>
+    expect(() => {
       appendUsageBackground({
         dir,
         record: { model: "no-provider" },
-      }),
-    ).not.toThrow();
+      });
+    }).not.toThrow();
   });
 });
 

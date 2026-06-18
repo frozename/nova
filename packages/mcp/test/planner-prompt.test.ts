@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { buildPlannerPrompt } from "../src/planner/prompt.js";
+
 import type { PlannerToolDescriptor } from "../src/planner/schema.js";
+
+import { buildPlannerPrompt } from "../src/planner/prompt.js";
 
 const fixtureTools: PlannerToolDescriptor[] = [
   {
@@ -75,11 +77,11 @@ describe("buildPlannerPrompt", () => {
     });
     expect(submitPlanFunction.name).toBe("submit_plan");
     expect(submitPlanFunction.description.length).toBeGreaterThan(0);
-    const params = submitPlanFunction.parameters as Record<string, unknown>;
+    const params = submitPlanFunction.parameters;
     expect(params.type).toBe("object");
     expect(params.required).toEqual(["steps", "reasoning"]);
     const props = params.properties as Record<string, Record<string, unknown>>;
-    const steps = props.steps as Record<string, unknown>;
+    const steps = props.steps!;
     expect(steps.type).toBe("array");
     expect(steps.maxItems).toBe(20);
     const stepItems = steps.items as Record<string, unknown>;

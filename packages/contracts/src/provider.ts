@@ -1,8 +1,7 @@
 import type { UnifiedAiRequest, UnifiedAiResponse } from "./schemas/chat.js";
-import type { UnifiedStreamEvent } from "./schemas/stream.js";
 import type { UnifiedEmbeddingRequest, UnifiedEmbeddingResponse } from "./schemas/embeddings.js";
-import type { ModelInfo } from "./schemas/models.js";
 import type { ProviderHealth } from "./schemas/health.js";
+import type { ModelInfo } from "./schemas/models.js";
 import type {
   DeleteRequest,
   DeleteResponse,
@@ -12,6 +11,7 @@ import type {
   StoreRequest,
   StoreResponse,
 } from "./schemas/retrieval.js";
+import type { UnifiedStreamEvent } from "./schemas/stream.js";
 
 /**
  * Canonical AI-provider adapter. Every backend — local llama.cpp

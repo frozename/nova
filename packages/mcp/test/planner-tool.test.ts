@@ -1,12 +1,14 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildNovaMcpServer } from "../src/server.js";
-import { runPlanner, stubPlannerExecutor, type PlannerExecutor } from "../src/planner/executor.js";
+
 import type { PlannerToolDescriptor } from "../src/planner/schema.js";
+
+import { type PlannerExecutor, runPlanner, stubPlannerExecutor } from "../src/planner/executor.js";
+import { buildNovaMcpServer } from "../src/server.js";
 
 /**
  * End-to-end tests for `nova.operator.plan`. Booted over the SDK's
@@ -48,14 +50,14 @@ async function connected(serverOpts: Parameters<typeof buildNovaMcpServer>[0] = 
 }
 
 function textOf(result: unknown): string {
-  const content = (result as { content?: Array<{ type: string; text: string }> }).content ?? [];
+  const content = (result as { content?: { type: string; text: string }[] }).content ?? [];
   return content[0]?.text ?? "";
 }
 
-function auditLines(): Array<Record<string, unknown>> {
+function auditLines(): Record<string, unknown>[] {
   if (!existsSync(auditDir)) return [];
   const files = readdirSync(auditDir).filter((f) => f.startsWith("nova-"));
-  const out: Array<Record<string, unknown>> = [];
+  const out: Record<string, unknown>[] = [];
   for (const f of files) {
     const body = readFileSync(join(auditDir, f), "utf8");
     for (const line of body.trim().split("\n")) if (line) out.push(JSON.parse(line));
@@ -103,7 +105,7 @@ describe("nova.operator.plan — MCP tool surface", () => {
       ok: boolean;
       executor: string;
       toolsAvailable: string[];
-      plan: { steps: Array<{ tool: string; annotation: string }>; reasoning: string };
+      plan: { steps: { tool: string; annotation: string }[]; reasoning: string };
     };
     expect(parsed.ok).toBe(true);
     expect(parsed.executor).toBe("stub");
@@ -152,7 +154,7 @@ describe("nova.operator.plan — MCP tool surface", () => {
     const parsed = JSON.parse(textOf(result)) as {
       ok: boolean;
       executor: string;
-      plan: { steps: Array<{ tool: string; dryRun?: boolean }>; requiresConfirmation: boolean };
+      plan: { steps: { tool: string; dryRun?: boolean }[]; requiresConfirmation: boolean };
     };
     expect(parsed.ok).toBe(true);
     expect(parsed.executor).toBe("fake-gpt");

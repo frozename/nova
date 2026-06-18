@@ -55,7 +55,7 @@ export function defaultNovaMcpConfigPath(env: NodeJS.ProcessEnv = process.env): 
 const INTERP_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 function interpolateString(s: string, env: NodeJS.ProcessEnv): string {
-  return s.replace(INTERP_RE, (match, varName: string) => {
+  return s.replaceAll(INTERP_RE, (match, varName: string) => {
     const v = env[varName];
     return v === undefined ? match : v;
   });
