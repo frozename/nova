@@ -26,21 +26,20 @@ export interface BearerAuth {
   fetch: FetchFn;
 }
 
-function cloneHeadersWithAuth(
-  headers: RequestInit['headers'] | undefined,
-  token: string,
-): Headers {
+function cloneHeadersWithAuth(headers: RequestInit["headers"] | undefined, token: string): Headers {
   const merged = new Headers();
   if (headers instanceof Headers) {
     headers.forEach((value, key) => merged.set(key, value));
   } else if (Array.isArray(headers)) {
-    for (const [key, value] of headers) merged.set(key, value);
-  } else if (headers && typeof headers === 'object') {
+    for (const [key, value] of headers) {
+      if (key !== undefined && value !== undefined) merged.set(key, value);
+    }
+  } else if (headers && typeof headers === "object") {
     for (const [key, value] of Object.entries(headers as Record<string, string>)) {
       merged.set(key, value);
     }
   }
-  merged.set('Authorization', `Bearer ${token}`);
+  merged.set("Authorization", `Bearer ${token}`);
   return merged;
 }
 

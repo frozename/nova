@@ -8,8 +8,11 @@
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "bun run --cwd packages/contracts typecheck && bun run --cwd packages/mcp-shared typecheck && bun run --cwd packages/mcp typecheck",
-    "test": "bun test"
+    "build": "tsc --build",
+    "typecheck": "tsc --build",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "test": "bun test packages/contracts/test packages/mcp-shared/test packages/mcp/test"
   },
   "devDependencies": {
     "@types/bun": "^1.3.12",

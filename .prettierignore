@@ -1,0 +1,5 @@
+**/dist/**
+bun.lock
+node_modules
+docs/
+coverage
