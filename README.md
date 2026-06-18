@@ -114,29 +114,32 @@ audit/envelope layer.
 
 ## Consuming Nova
 
-Until a registry publish lands, consumers depend on Nova via local
-file paths. Typical layout:
+Nova publishes to npm under the `@nova` scope. Each package builds to
+plain JavaScript + `.d.ts` (`tsc --build`), so it is **node-portable** —
+consumers do not need the Bun runtime. Bun is the development and CI
+runtime; the published artifacts run anywhere Node does.
 
-```
-~/dev/
-├── nova/
-├── my-gateway/
-├── my-agent/
-└── ...
+```bash
+npm install @nova/contracts @nova/mcp-shared
+# or: bun add @nova/contracts @nova/mcp-shared
 ```
 
 ```json
 {
   "dependencies": {
-    "@nova/contracts": "file:../nova/packages/contracts",
-    "@nova/mcp-shared": "file:../nova/packages/mcp-shared"
+    "@nova/contracts": "^0.1.0",
+    "@nova/mcp-shared": "^0.1.0"
   }
 }
 ```
 
-Each consumer installs its own copy under `node_modules`; schema
-drift is detected by running the consumer's test suite after a Nova
-bump.
+Inside this monorepo the three packages reference each other with
+`workspace:*`; `bun publish` (and `npm publish`) rewrite that to the
+concrete published version at release time. Consumers always pull a
+real semver range, never a workspace or file specifier.
+
+Schema drift is detected by running the consumer's test suite after a
+Nova bump.
 
 ### Example — build a provider adapter
 
@@ -197,14 +200,18 @@ server.registerTool(
 
 ## Editing Nova
 
-1. Change a package under `packages/<name>/` and run
-   `bun test && bun run typecheck` at the repo root.
+1. Change a package under `packages/<name>/` and run the gate at the
+   repo root: `bun run lint && bun run build && bun test`.
 2. Bump `version` in the changed package following semver intent
    (wire-shape changes are breaking; additive schemas are minor;
    docstring-only are patch).
-3. In each downstream consumer, run `bun install` to refresh the
-   lockfile, then run that consumer's test suite. Commit the
-   lockfile bump alongside any follow-up code changes.
+3. In each downstream consumer, bump the `@nova/*` range and run
+   `bun install` (or `npm install`) to refresh the lockfile, then run
+   that consumer's test suite. Commit the lockfile bump alongside any
+   follow-up code changes.
+
+A Husky `pre-commit` hook runs `lint-staged`, formatting staged files
+with Prettier on the way in.
 
 ## Layout
 
@@ -237,12 +244,34 @@ bun packages/mcp/bin/nova-mcp.ts
 # stdio MCP server — wire into Claude Desktop or any MCP client.
 ```
 
-## Tests
+## Toolchain
+
+A strict, hard-gated toolchain. Every command runs on Bun 1.3.14
+(pinned in CI):
 
 ```bash
-bun test           # all packages
-bun run typecheck  # each package, in order
+bun run build              # tsc --build -> dist + .d.ts for every package
+bun run typecheck:strict   # tsc --noEmit over the whole tree (tsconfig.eslint.json)
+bun run lint               # no-cross-package-relative guard + eslint --max-warnings=0 + strict typecheck
+bun test                   # all packages
 ```
+
+`bun run lint` is zero-tolerance: ESLint runs with `--max-warnings=0`,
+a custom `no-cross-package-relative` guard forbids reaching across
+package boundaries with relative imports, and the strict typecheck is
+folded in. `bun run format` / `bun run format:check` drive Prettier.
+
+CI (`.github/workflows/check.yml`) re-runs the full gate as a hard
+block on every pull request and push to `main`: install with a frozen
+lockfile, then `typecheck:strict`, `lint`, `build`, and the test
+suite. The test step routes through `scripts/bun-test-gate.ts`, which
+gates on reported pass/fail counts and tolerates a Bun NAPI-teardown
+panic (exit 133) only when zero tests failed.
+
+Releases (`.github/workflows/release.yml`) publish the `@nova/*`
+packages to npm in dependency order (contracts → mcp-shared → mcp).
+The default run is a dry-run pack; a `v*` tag or a manual dispatch
+with `dry_run=false` publishes for real.
 
 ## Reference consumers
 

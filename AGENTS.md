@@ -16,15 +16,17 @@ Nova is an AI-provider SDK + MCP server scaffolding:
 - `@nova/mcp` — unified operator MCP facade. Consumer of the two
   above.
 
-Nova is consumed via `file:` deps by sibling repos (`llamactl`,
-`sirius-gateway`, `embersynth`, and anything else built on top).
-**Nova does not know about its consumers.** Resist adding
-llamactl/sirius/embersynth-specific shapes here; put them in the
-consumer.
+Nova publishes to npm under the `@nova` scope; sibling repos
+(`llamactl`, `sirius-gateway`, `embersynth`, and anything else built
+on top) consume it via a real `^version` range. **Nova does not know
+about its consumers.** Resist adding llamactl/sirius/embersynth-specific
+shapes here; put them in the consumer.
 
 ## Tech stack
 
-- Bun 1.3+ (`bun test`, `bun install`, `bun run typecheck`).
+- Bun 1.3.14 as the dev + CI runtime (`bun test`, `bun install`,
+  `bun run …`); pinned in both workflows. Published packages are
+  node-portable — Bun is not required to consume them.
 - TypeScript 5.9+, `"type": "module"`, `.js` import specifiers on TS
   paths (standard NodeNext + ESM).
 - Zod 4.3+ (`z.enum`, `z.discriminatedUnion`, `.partial()` for
@@ -43,21 +45,36 @@ packages/
 ```
 
 Each package carries its own `package.json`, `tsconfig.json`, and
-`test/`. Consumer ergonomics matter — keep `main` pointing at the
-TS source (`src/index.ts`) so `file:` deps work without a build
-step.
+`test/`. Packages build to `dist/` (`tsc --build`); `main` points at
+the compiled `dist/src/index.js` and `types` at the `.d.ts`, so the
+published artifacts are **node-portable** — consumers do not need Bun.
+The three packages reference each other internally with `workspace:*`,
+which `bun publish` rewrites to the concrete version at release time.
 
 ## Commands
 
 ```bash
-bun install            # workspace install
-bun test               # all packages
-bun run typecheck      # each package, in sequence
+bun install                # workspace install (also installs the Husky hook)
+bun run build              # tsc --build -> dist for every package
+bun run typecheck:strict   # tsc --noEmit over the whole tree
+bun run lint               # no-cross-package-relative + eslint --max-warnings=0 + strict typecheck
+bun test                   # all packages
+bun run format             # Prettier write (format:check for CI-style verify)
 bun packages/mcp/bin/nova-mcp.ts   # stdio MCP server
 ```
 
-Every PR: `bun test && bun run typecheck` from the repo root before
-committing.
+Every PR runs the full gate `bun run lint && bun run build && bun test`
+from the repo root before committing. This is a **hard, zero-tolerance
+gate** — ESLint runs with `--max-warnings=0`, and CI
+(`.github/workflows/check.yml`) re-runs install (frozen lockfile) →
+`typecheck:strict` → `lint` → `build` → test on every PR and push to
+`main`. A Husky `pre-commit` hook runs `lint-staged` (Prettier on
+staged files); `bun install` installs it via the `prepare` script.
+
+When the lint gate flags new code, fix it — do not weaken a rule.
+A scoped `// eslint-disable-next-line <rule> -- <reason>` with a real
+justification is the only sanctioned escape hatch (see the existing
+ones in `packages/mcp-shared/test/`).
 
 ## Code style
 
@@ -112,11 +129,11 @@ Changing any Zod schema in `@nova/contracts` is a wire-shape change.
 Follow this sequence:
 
 1. Edit the schema + add/update tests.
-2. `bun test && bun run typecheck` at the nova root.
+2. `bun run lint && bun run build && bun test` at the nova root.
 3. Bump `version` in the affected package (`packages/contracts/package.json`).
 4. In each downstream consumer (`llamactl`, `sirius-gateway`,
-   `embersynth`, …), `bun install` refreshes the file: dep; then
-   run that consumer's full test suite.
+   `embersynth`, …), bump the `@nova/*` range, `bun install` to
+   refresh the lockfile, then run that consumer's full test suite.
 5. Commit the consumer's lockfile bump alongside any code changes
    the schema change required. One commit per consumer.
 
@@ -263,9 +280,11 @@ facade; the two coexist as siblings.
   interfaces; no HTTP, no SDK wrappers, no file I/O.
 - Committing `.env` or secrets.
 - `z.record(z.unknown())` (Zod 3 shape — compile-errors in Zod 4).
-- `workspace:*` deps between Nova's own packages. They break
-  resolution when a consumer links `@nova/mcp` via `file:`. Use
-  `file:../sibling` instead.
+- Cross-package **relative** imports (`../../contracts/src/...`). The
+  `no-cross-package-relative` lint guard fails the build on these;
+  import the package by name (`@nova/contracts`) instead. The internal
+  `workspace:*` deps are deliberate — `bun publish` rewrites them to a
+  concrete version, so they do not leak to consumers.
 
 ## When in doubt
 
