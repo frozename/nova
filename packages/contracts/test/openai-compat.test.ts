@@ -37,7 +37,7 @@ beforeAll(() => {
         if (body.stream) {
           const toolCallRun = Array.isArray(body.tools) && body.tools.length > 0;
           const stream = new ReadableStream({
-            start(controller) {
+            start(controller): void {
               const enc = new TextEncoder();
               if (toolCallRun) {
                 // Emit two partial tool_call deltas + a finish frame.
@@ -122,14 +122,14 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  upstream?.stop(true);
+  void upstream?.stop(true);
 });
 
 function makeProvider(): ReturnType<typeof createOpenAICompatProvider> {
   return createOpenAICompatProvider({
     name: "stub",
     displayName: "Stub",
-    baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+    baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
     apiKey: "sk-test",
   });
 }
@@ -170,7 +170,7 @@ describe("openai-compat provider", () => {
         (e as { type?: string }).type === "chunk",
     );
     expect(chunks.length).toBeGreaterThanOrEqual(2);
-    const joined = chunks.map((c) => c.chunk.choices[0]?.delta.content ?? "").join("");
+    const joined = chunks.map((c) => c.chunk.choices[0].delta.content ?? "").join("");
     expect(joined).toBe("hello");
     const lastEvent = events[events.length - 1] as { type: string };
     expect(lastEvent.type).toBe("done");
@@ -208,7 +208,7 @@ describe("openai-compat provider", () => {
     const p = createOpenAICompatProvider({
       name: "local",
       // Root baseUrl — /health sits outside /v1 on self-hosted gateways.
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}`,
       apiKey: "x",
       healthPath: "/health",
     });
@@ -268,7 +268,7 @@ describe("openai-compat provider — onUsage callback", () => {
     const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: (s) => {
         snapshots.push({ ...s });
@@ -319,7 +319,7 @@ describe("openai-compat provider — onUsage callback", () => {
       const snapshots: Record<string, unknown>[] = [];
       const p = createOpenAICompatProvider({
         name: "no-usage",
-        baseUrl: `http://127.0.0.1:${noUsagePort}/v1`,
+        baseUrl: `http://127.0.0.1:${String(noUsagePort)}/v1`,
         apiKey: "sk",
         onUsage: (s) => {
           snapshots.push({ ...s });
@@ -331,14 +331,14 @@ describe("openai-compat provider — onUsage callback", () => {
       });
       expect(snapshots).toHaveLength(0);
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 
   test("onUsage throw does not bleed into the response path", async () => {
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: () => {
         throw new Error("logger boom");
@@ -355,7 +355,7 @@ describe("openai-compat provider — onUsage callback", () => {
     const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: (s) => {
         snapshots.push({ ...s });
@@ -375,7 +375,7 @@ describe("openai-compat provider — onUsage callback", () => {
     const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: (s) => {
         snapshots.push({ ...s });
@@ -400,7 +400,7 @@ describe("openai-compat provider — onUsage callback", () => {
     const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: (s) => {
         snapshots.push({ ...s });

@@ -192,20 +192,20 @@ describe("AiProvider interface", () => {
     // Compile-time-only: the object literal conforms to AiProvider.
     const stub: AiProvider = {
       name: "stub",
-      async createResponse(req) {
-        return {
+      createResponse(req) {
+        return Promise.resolve({
           id: "x",
-          object: "chat.completion",
+          object: "chat.completion" as const,
           model: req.model,
           created: 0,
           choices: [
             {
               index: 0,
-              message: { role: "assistant", content: "" },
-              finish_reason: "stop",
+              message: { role: "assistant" as const, content: "" },
+              finish_reason: "stop" as const,
             },
           ],
-        };
+        });
       },
     };
     expect(stub.name).toBe("stub");

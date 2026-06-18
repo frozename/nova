@@ -80,6 +80,70 @@ function trimTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
+/** Finish-reason variant of {@link UnifiedStreamEvent}'s `done` arm. */
+type StreamFinishReason = UnifiedStreamEvent extends { type: "done"; finish_reason: infer F }
+  ? F
+  : never;
+
+/** Raw OpenAI SSE chunk shape (a relaxed view of the wire payload). */
+interface WireStreamChunk {
+  id?: string;
+  object?: string;
+  model?: string;
+  created?: number;
+  choices?: {
+    index?: number;
+    delta?: {
+      role?: "assistant" | "tool";
+      content?: string | null;
+      tool_calls?: {
+        index: number;
+        id?: string;
+        type?: "function";
+        function?: { name?: string; arguments?: string };
+      }[];
+    };
+    finish_reason?: string | null;
+  }[];
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+}
+
+/**
+ * Map a parsed OpenAI SSE chunk (with at least one choice) into the
+ * unified `chunk` stream event. Pure — no side effects — so the
+ * generator stays focused on transport/buffering control flow.
+ */
+function toChunkEvent(
+  chunk: WireStreamChunk & { choices: NonNullable<WireStreamChunk["choices"]> },
+  fallbackModel: string,
+): UnifiedStreamEvent {
+  return {
+    type: "chunk",
+    chunk: {
+      id: chunk.id ?? "",
+      object: "chat.completion.chunk",
+      model: chunk.model ?? fallbackModel,
+      created: chunk.created ?? Math.floor(Date.now() / 1000),
+      choices: chunk.choices.map((c) => ({
+        index: c.index ?? 0,
+        delta: {
+          ...(c.delta?.role ? { role: c.delta.role } : {}),
+          ...(c.delta?.content !== undefined ? { content: c.delta.content } : {}),
+          ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
+        },
+        ...(c.finish_reason !== undefined
+          ? { finish_reason: c.finish_reason as StreamFinishReason }
+          : {}),
+      })),
+    },
+  };
+}
+
+// eslint-disable-next-line max-lines-per-function -- factory returns the full 5-method AiProvider surface (createResponse/streamResponse/createEmbeddings/listModels/healthCheck) as one closure over `opts`; the length is the sum of those method bodies, not a single oversized function, and splitting the closure would scatter the shared `call`/`fireUsage`/`headers` helpers.
 export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvider {
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const base = trimTrailingSlash(opts.baseUrl);
@@ -90,9 +154,15 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
   });
 
   async function call(path: string, init: RequestInit): Promise<Response> {
+    const merged = new Headers(headers());
+    if (init.headers) {
+      for (const [k, v] of new Headers(init.headers).entries()) {
+        merged.set(k, v);
+      }
+    }
     return await fetchImpl(`${base}${path}`, {
       ...init,
-      headers: { ...headers(), ...(init.headers ?? {}) },
+      headers: merged,
     });
   }
 
@@ -121,14 +191,14 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(`${opts.name} ${res.status}: ${text.slice(0, 500)}`);
+        throw new Error(`${opts.name} ${String(res.status)}: ${text.slice(0, 500)}`);
       }
       const raw = (await res.json()) as UnifiedAiResponse;
       const latencyMs = Date.now() - startedAt;
       if (raw.usage) {
         fireUsage({
           provider: opts.name,
-          model: raw.model ?? request.model,
+          model: (raw as { model?: string }).model ?? request.model,
           kind: "chat",
           prompt_tokens: raw.usage.prompt_tokens,
           completion_tokens: raw.usage.completion_tokens,
@@ -143,6 +213,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       };
     },
 
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- irreducible SSE-decode control flow: outer read loop + abort/done checks + inner frame-split (`\n\n`) + data:/[DONE] sentinel guards + usage-frame and finish-frame branches must share the same mutable buffer/lastFinish/lastModel and retain the ability to `return` (on [DONE]) from inside the nested loops; extracting them would require threading that state and an early-terminate signal through a helper, which is more error-prone on this most-consumed adapter than the flat reader.
     async *streamResponse(
       request: UnifiedAiRequest,
       signal?: AbortSignal,
@@ -159,7 +230,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         yield {
           type: "error",
           error: {
-            message: `${opts.name} ${res.status}: ${text.slice(0, 500)}`,
+            message: `${opts.name} ${String(res.status)}: ${text.slice(0, 500)}`,
             code: String(res.status),
             retryable: res.status >= 500 || res.status === 429,
           },
@@ -176,10 +247,13 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       let buffer = "";
       let lastFinish: UnifiedStreamEvent = { type: "done", finish_reason: "stop" };
       let lastModel = request.model;
-      while (true) {
+      for (;;) {
         if (signal?.aborted) break;
-        const { value, done } = await reader.read();
-        if (done) break;
+        const { value, done } = (await reader.read()) as {
+          value?: Uint8Array;
+          done: boolean;
+        };
+        if (done || !value) break;
         buffer += decoder.decode(value, { stream: true });
         // OpenAI SSE frames are separated by blank lines; each frame
         // is a `data: {...}` line (plus `event:` in some dialects).
@@ -194,31 +268,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
             return;
           }
           try {
-            const chunk = JSON.parse(payload) as {
-              id?: string;
-              object?: string;
-              model?: string;
-              created?: number;
-              choices?: {
-                index?: number;
-                delta?: {
-                  role?: "assistant" | "tool";
-                  content?: string | null;
-                  tool_calls?: {
-                    index: number;
-                    id?: string;
-                    type?: "function";
-                    function?: { name?: string; arguments?: string };
-                  }[];
-                };
-                finish_reason?: string | null;
-              }[];
-              usage?: {
-                prompt_tokens?: number;
-                completion_tokens?: number;
-                total_tokens?: number;
-              };
-            };
+            const chunk = JSON.parse(payload) as WireStreamChunk;
             if (chunk.model) lastModel = chunk.model;
             // Usage frame — OpenAI emits this as the penultimate
             // chunk when the client passes `stream_options:
@@ -238,43 +288,9 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
             if (!chunk.choices) continue;
             const finish = chunk.choices[0]?.finish_reason;
             if (finish) {
-              lastFinish = {
-                type: "done",
-                finish_reason: finish as UnifiedStreamEvent extends {
-                  type: "done";
-                  finish_reason: infer F;
-                }
-                  ? F
-                  : never,
-              };
+              lastFinish = { type: "done", finish_reason: finish as StreamFinishReason };
             }
-            yield {
-              type: "chunk",
-              chunk: {
-                id: chunk.id ?? "",
-                object: "chat.completion.chunk",
-                model: chunk.model ?? request.model,
-                created: chunk.created ?? Math.floor(Date.now() / 1000),
-                choices: chunk.choices.map((c) => ({
-                  index: c.index ?? 0,
-                  delta: {
-                    ...(c.delta?.role ? { role: c.delta.role } : {}),
-                    ...(c.delta?.content !== undefined ? { content: c.delta.content } : {}),
-                    ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
-                  },
-                  ...(c.finish_reason !== undefined
-                    ? {
-                        finish_reason: c.finish_reason as UnifiedStreamEvent extends {
-                          type: "done";
-                          finish_reason: infer F;
-                        }
-                          ? F
-                          : never,
-                      }
-                    : {}),
-                })),
-              },
-            };
+            yield toChunkEvent({ ...chunk, choices: chunk.choices }, request.model);
           } catch {
             // Ignore non-JSON data lines; some providers emit keep-alives.
           }
@@ -293,20 +309,19 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(`${opts.name} ${res.status}: ${text.slice(0, 500)}`);
+        throw new Error(`${opts.name} ${String(res.status)}: ${text.slice(0, 500)}`);
       }
-      const raw = (await res.json()) as UnifiedEmbeddingResponse & {
-        usage?: { prompt_tokens?: number; total_tokens?: number };
-      };
+      const raw = (await res.json()) as UnifiedEmbeddingResponse;
       const latencyMs = Date.now() - startedAt;
-      if (raw.usage) {
+      const usage = (raw as { usage?: { prompt_tokens?: number; total_tokens?: number } }).usage;
+      if (usage) {
         fireUsage({
           provider: opts.name,
-          model: raw.model ?? request.model,
+          model: (raw as { model?: string }).model ?? request.model,
           kind: "embedding",
-          prompt_tokens: raw.usage.prompt_tokens ?? 0,
+          prompt_tokens: usage.prompt_tokens ?? 0,
           completion_tokens: 0,
-          total_tokens: raw.usage.total_tokens ?? raw.usage.prompt_tokens ?? 0,
+          total_tokens: usage.total_tokens ?? usage.prompt_tokens ?? 0,
           latency_ms: latencyMs,
         });
       }
@@ -321,14 +336,14 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       const res = await call("/models", { method: "GET" });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(`${opts.name} /models ${res.status}: ${text.slice(0, 500)}`);
+        throw new Error(`${opts.name} /models ${String(res.status)}: ${text.slice(0, 500)}`);
       }
       const raw = (await res.json()) as {
         data?: { id?: string; created?: number; owned_by?: string }[];
       };
       const now = Math.floor(Date.now() / 1000);
       return (raw.data ?? []).map((m) => ({
-        id: String(m.id ?? ""),
+        id: m.id ?? "",
         object: "model" as const,
         created: m.created ?? now,
         owned_by: m.owned_by ?? opts.name,
@@ -347,7 +362,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
             state: res.status >= 500 ? "unhealthy" : "degraded",
             lastChecked: new Date().toISOString(),
             latencyMs,
-            error: `HTTP ${res.status}`,
+            error: `HTTP ${String(res.status)}`,
           };
         }
         return {
