@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { appendAudit, toTextContent } from "@nova/mcp-shared";
 import { existsSync, readFileSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
@@ -9,6 +10,7 @@ import type { PlannerToolDescriptor } from "./planner/schema.js";
 
 import { computeCostSnapshot } from "./cost/snapshot.js";
 import {
+  configBaseDir,
   defaultEmbersynthConfigPath,
   defaultKubeconfigPath,
   defaultSiriusProvidersPath,
@@ -45,12 +47,38 @@ import { type PlannerExecutor, runPlanner } from "./planner/executor.js";
 
 const SERVER_SLUG = "nova";
 
-function readYamlIfExists(path: string): unknown {
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- operator-controlled YAML path (kubeconfig/sirius/embersynth defaults or explicit tool input), read-only existence probe
-  if (!existsSync(path)) return null;
+/**
+ * Decide which path to read for one of the three operator YAMLs.
+ *
+ * The env-derived default is operator-controlled (set at deploy time via
+ * DEV_STORAGE / LLAMACTL_*), so it is trusted verbatim — an operator may
+ * legitimately relocate the config tree anywhere.
+ *
+ * An override coming from the MCP tool input is LLM/agent-controlled and is
+ * the real arbitrary-file-read vector: it is honored ONLY when it resolves to
+ * a location inside {@link configBaseDir} (the config root). Anything that
+ * escapes the root — `..` traversal or an absolute path elsewhere — is
+ * rejected and the call falls back to the trusted default, failing closed
+ * rather than reading whatever file the agent named. Returns the absolute,
+ * containment-checked path.
+ */
+function resolveOperatorPath(override: string | undefined, fallback: string): string {
+  if (override === undefined) return fallback;
+  const root = resolve(configBaseDir());
+  const candidate = resolve(root, override);
+  const rel = relative(root, candidate);
+  const escapesRoot = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+  return escapesRoot ? fallback : candidate;
+}
+
+function readYamlIfExists(validatedPath: string): unknown {
+  // Path is the env-default (operator-trusted) or has passed the
+  // resolveOperatorPath containment check; not raw agent input.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- containment-validated operator YAML path; read-only existence probe
+  if (!existsSync(validatedPath)) return null;
   try {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- same operator-controlled YAML path; read-only load
-    return parseYaml(readFileSync(path, "utf8"));
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- same containment-validated path; read-only load
+    return parseYaml(readFileSync(validatedPath, "utf8"));
   } catch {
     return null;
   }
@@ -151,9 +179,9 @@ function registerOverviewTool(server: McpServer): void {
       },
     },
     (input) => {
-      const kubePath = input.kubeconfigPath ?? defaultKubeconfigPath();
-      const siriusPath = input.siriusProvidersPath ?? defaultSiriusProvidersPath();
-      const embPath = input.embersynthConfigPath ?? defaultEmbersynthConfigPath();
+      const kubePath = resolveOperatorPath(input.kubeconfigPath, defaultKubeconfigPath());
+      const siriusPath = resolveOperatorPath(input.siriusProvidersPath, defaultSiriusProvidersPath());
+      const embPath = resolveOperatorPath(input.embersynthConfigPath, defaultEmbersynthConfigPath());
 
       const kube = readYamlIfExists(kubePath) as KubeconfigShape | null;
       const sirius = readYamlIfExists(siriusPath) as SiriusProvidersShape | null;
@@ -188,11 +216,12 @@ function registerOverviewTool(server: McpServer): void {
       appendAudit({ server: SERVER_SLUG, tool: "nova.ops.overview", input });
       return toTextContent({
         paths: {
-          // eslint-disable-next-line security/detect-non-literal-fs-filename -- operator-controlled kubeconfig path; read-only existence probe to report which files were found
+          // All three are containment-validated by resolveOperatorPath above.
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- containment-validated kubeconfig path; read-only existence probe to report which files were found
           kubeconfig: existsSync(kubePath) ? kubePath : null,
-          // eslint-disable-next-line security/detect-non-literal-fs-filename -- operator-controlled sirius-providers path; read-only existence probe
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- containment-validated sirius-providers path; read-only existence probe
           siriusProviders: existsSync(siriusPath) ? siriusPath : null,
-          // eslint-disable-next-line security/detect-non-literal-fs-filename -- operator-controlled embersynth config path; read-only existence probe
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- containment-validated embersynth config path; read-only existence probe
           embersynthConfig: existsSync(embPath) ? embPath : null,
         },
         context: ctx?.name ?? null,
@@ -221,8 +250,8 @@ function registerHealthcheckTool(server: McpServer): void {
       },
     },
     async (input) => {
-      const kubePath = input.kubeconfigPath ?? defaultKubeconfigPath();
-      const siriusPath = input.siriusProvidersPath ?? defaultSiriusProvidersPath();
+      const kubePath = resolveOperatorPath(input.kubeconfigPath, defaultKubeconfigPath());
+      const siriusPath = resolveOperatorPath(input.siriusProvidersPath, defaultSiriusProvidersPath());
       const timeoutMs = input.timeoutMs;
 
       const kube = readYamlIfExists(kubePath) as KubeconfigShape | null;

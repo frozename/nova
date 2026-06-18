@@ -20,6 +20,16 @@ function base(env: NodeJS.ProcessEnv): string {
   return trimmedEnv(env['DEV_STORAGE']) ?? join(homedir(), ".llamactl");
 }
 
+/**
+ * Root the operator config files live under (DEV_STORAGE or
+ * ~/.llamactl). The MCP server uses this as the containment boundary
+ * for agent-supplied path overrides — a tool input that resolves
+ * outside this root is an arbitrary-read attempt and is rejected.
+ */
+export function configBaseDir(env: NodeJS.ProcessEnv = process.env): string {
+  return base(env);
+}
+
 export function defaultKubeconfigPath(env: NodeJS.ProcessEnv = process.env): string {
   return trimmedEnv(env['LLAMACTL_CONFIG']) ?? join(base(env), "config");
 }

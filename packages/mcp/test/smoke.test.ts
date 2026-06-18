@@ -3,7 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 
 import { buildNovaMcpServer } from "../src/server.js";
@@ -183,6 +183,46 @@ describe("@nova/mcp facade", () => {
     expect(parsed.siriusProviders).toEqual([]);
     expect(parsed.embersynthProfiles).toEqual([]);
     expect(parsed.syntheticModels).toEqual({});
+  });
+
+  test("nova.ops.overview rejects an agent path that escapes the config root", async () => {
+    // The kubeconfigPath input is LLM/agent-controlled. A secret config living
+    // OUTSIDE the config root (DEV_STORAGE = runtimeDir) must not be readable
+    // via a `..` traversal — resolveOperatorPath rejects it and falls back to
+    // the (absent) default, so none of its contents surface.
+    const outsideDir = mkdtempSync(join(tmpdir(), "nova-mcp-secret-"));
+    const secretPath = join(outsideDir, "secret-kubeconfig");
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test-owned tempdir from mkdtempSync; writing the canned "secret" fixture
+    writeFileSync(
+      secretPath,
+      stringifyYaml({
+        currentContext: "EXFILTRATED",
+        contexts: [{ name: "EXFILTRATED", cluster: "leaked" }],
+        clusters: [{ name: "leaked", nodes: [{ name: "stolen-agent", endpoint: "inproc://x" }] }],
+      }),
+    );
+    const traversal = relative(runtimeDir, secretPath);
+    try {
+      const client = await connected();
+      const result = await client.callTool({
+        name: "nova.ops.overview",
+        arguments: { kubeconfigPath: traversal },
+      });
+      const raw = textOf(result);
+      const parsed = JSON.parse(raw) as {
+        paths: { kubeconfig: string | null };
+        context: string | null;
+        agents: { name: string }[];
+      };
+      // The traversal was rejected: it fell back to the default kube path
+      // (runtimeDir/config), which is the legit fixture — never the secret.
+      expect(raw).not.toContain("EXFILTRATED");
+      expect(raw).not.toContain("stolen-agent");
+      expect(parsed.context).not.toBe("EXFILTRATED");
+      expect(parsed.paths.kubeconfig).not.toBe(secretPath);
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
   });
 
   test("nova.ops.healthcheck fails soft on unreachable endpoints", async () => {
