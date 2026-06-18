@@ -65,11 +65,25 @@ function buildTransport(spec: DownstreamSpec): Transport {
     });
   }
   const url = new URL(spec.url);
+  // SDK self-incompatibility under exactOptionalPropertyTypes: the HTTP
+  // transport declares `onmessage?: (m: JSONRPCMessage) => void` (non-generic)
+  // where Transport declares the generic `<T extends JSONRPCMessage>(m: T, …)`,
+  // so the concrete class is not structurally assignable to the SDK's own
+  // Transport — even though `client.connect(t: Transport)` is its intended
+  // sink. StdioClientTransport matches and needs no bridge. asTransport widens
+  // only the callback-signature variance; the runtime object is unchanged.
   if (spec.token) {
     const { fetch } = createBearerAuth(spec.token);
-    return new StreamableHTTPClientTransport(url, { fetch });
+    return asTransport(new StreamableHTTPClientTransport(url, { fetch }));
   }
-  return new StreamableHTTPClientTransport(url);
+  return asTransport(new StreamableHTTPClientTransport(url));
+}
+
+// Narrow bridge for the SDK's own Transport-vs-StreamableHTTPClientTransport
+// signature variance (see buildTransport). Scoped to StreamableHTTPClientTransport
+// so it cannot silently launder an unrelated type into a Transport.
+function asTransport(t: StreamableHTTPClientTransport): Transport {
+  return t as unknown as Transport;
 }
 
 export async function bootDownstream(spec: DownstreamSpec): Promise<Downstream> {

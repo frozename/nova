@@ -114,6 +114,14 @@ export type RunPlannerResult =
       trace?: Record<string, unknown>;
     };
 
+// Preserve the absent/undefined distinction under exactOptionalPropertyTypes:
+// when the executor returns no trace, the field is omitted entirely rather
+// than set to `undefined`. Extracted so the four call sites don't each add a
+// branch to runPlanner's cognitive complexity.
+function traceField(trace: Record<string, unknown> | undefined): { trace?: Record<string, unknown> } {
+  return trace !== undefined ? { trace } : {};
+}
+
 /**
  * Composable run: allowlist → prompt → executor → schema-validate.
  * Pure logic (aside from whatever the executor does) — no MCP, no
@@ -145,7 +153,7 @@ export async function runPlanner(opts: RunPlannerOptions): Promise<RunPlannerRes
       reason: "executor-failed",
       message: `${exec.reason}: ${exec.message}`,
       executor: executor.name,
-      trace: exec.trace,
+      ...traceField(exec.trace),
     };
   }
   const parsed = PlanSchema.safeParse(exec.rawPlan);
@@ -156,7 +164,7 @@ export async function runPlanner(opts: RunPlannerOptions): Promise<RunPlannerRes
       message: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
       executor: executor.name,
       rawPlan: exec.rawPlan,
-      trace: exec.trace,
+      ...traceField(exec.trace),
     };
   }
   // Safety gate: every step's tool MUST be in the filtered allowlist.
@@ -176,7 +184,7 @@ export async function runPlanner(opts: RunPlannerOptions): Promise<RunPlannerRes
       executor: executor.name,
       rawPlan: exec.rawPlan,
       disallowedTools: [...new Set(disallowed)],
-      trace: exec.trace,
+      ...traceField(exec.trace),
     };
   }
   return {
@@ -184,6 +192,6 @@ export async function runPlanner(opts: RunPlannerOptions): Promise<RunPlannerRes
     plan: parsed.data,
     executor: executor.name,
     toolsAvailable: filtered.map((t) => t.name),
-    trace: exec.trace,
+    ...traceField(exec.trace),
   };
 }
