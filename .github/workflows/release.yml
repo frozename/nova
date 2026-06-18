@@ -1,0 +1,79 @@
+name: release
+
+# Publishes the @nova/* packages to npm.
+#
+# PREREQUISITES (one-time, manual):
+#   1. The @nova npm org/scope exists and the NPM_TOKEN repo secret is an
+#      automation token with publish rights to it.
+#   2. Each package already carries `publishConfig.access: public` (a scoped
+#      package is private by default; the automation token must be allowed to
+#      publish public packages under @nova).
+#
+# The @nova/* packages are built to plain JS + .d.ts (tsc --build) and are
+# node-portable; they are published for Node and Bun consumers alike.
+#
+# Default is a DRY RUN (pack only). Publishing happens on a v* tag, or via
+# manual dispatch with dry_run=false.
+#
+# No `--provenance`: bun 1.3.14 does not support it. Re-add `--provenance` (and
+# an `id-token: write` permission) once the pinned bun gains the flag.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack only; do not publish"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Build (tsc --build -> dist + .d.ts for every package)
+        run: bun run build
+
+      - name: Publish in dependency order
+        # Tag push always publishes; manual dispatch publishes only when dry_run=false.
+        if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          # bun publish rewrites workspace:* -> the concrete version at publish
+          # time. Order: leaves first, then dependents.
+          #   contracts  -> (no @nova deps)
+          #   mcp-shared -> contracts
+          #   mcp        -> contracts + mcp-shared
+          for pkg in \
+            contracts \
+            mcp-shared \
+            mcp ; do
+            echo "::group::publish @nova/${pkg}"
+            ( cd "packages/${pkg}" && bun publish --access public )
+            echo "::endgroup::"
+          done
+
+      - name: Dry-run pack (default; no publish)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        run: |
+          set -euo pipefail
+          for pkg in contracts mcp-shared mcp ; do
+            echo "::group::pack @nova/${pkg}"
+            ( cd "packages/${pkg}" && bun pm pack --dry-run )
+            echo "::endgroup::"
+          done

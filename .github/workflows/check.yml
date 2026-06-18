@@ -1,0 +1,33 @@
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Pinned to a known stable release — `latest` can resolve to a canary
+          # build, which has surfaced NAPI-teardown panics (exit 133) under load.
+          bun-version: 1.3.14
+      - name: install
+        run: bun install --frozen-lockfile
+      - name: typecheck:strict
+        run: bun run typecheck:strict
+      - name: lint (eslint --max-warnings=0 + no-cross-package-relative + strict typecheck)
+        run: bun run lint
+      - name: build
+        run: bun run build
+      - name: test
+        # bun test routed through scripts/bun-test-gate.ts: it gates on REPORTED
+        # pass/fail counts (0 fail / 0 error AND summary reached), tolerating a
+        # bun NAPI-teardown panic (exit 133) ONLY when 0 tests failed. A real
+        # failure, a load error, or any crash before the summary still reds the
+        # gate. Same dir set as `bun run test`.
+        run: bun scripts/bun-test-gate.ts packages/contracts/test packages/mcp-shared/test packages/mcp/test scripts/lint
