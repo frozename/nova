@@ -107,10 +107,11 @@ export default tseslint.config(
         },
       ],
       "@typescript-eslint/explicit-module-boundary-types": "warn",
-      // Deferred: requires verbatimModuleSyntax in tsconfig.base.json.
-      // Re-enable after the verbatim migration; current state has accumulated value/type import drift.
-      "@typescript-eslint/consistent-type-imports": "off",
-      "@typescript-eslint/no-import-type-side-effects": "off",
+      // verbatimModuleSyntax is enabled in tsconfig.eslint.json (the strict
+      // gate config these rules type-check against), so type-only imports must
+      // be explicit. Both are clean today; keep them as errors to stop drift.
+      "@typescript-eslint/consistent-type-imports": "error",
+      "@typescript-eslint/no-import-type-side-effects": "error",
       "no-warning-comments": [
         "warn",
         { terms: ["todo", "fixme", "hack", "xxx"], location: "anywhere" },
