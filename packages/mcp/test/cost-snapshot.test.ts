@@ -1,3 +1,5 @@
+import type { PricingCatalog, ProviderPricing } from "@nova/contracts";
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -13,17 +15,18 @@ let auditDir = "";
 const originalEnv = { ...process.env };
 
 function writeFile(name: string, records: Record<string, unknown>[]): void {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- file under the test-owned mkdtempSync tempdir; writing canned usage JSONL
   writeFileSync(join(dir, name), records.map((r) => JSON.stringify(r)).join("\n") + "\n");
 }
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "nova-cost-"));
   auditDir = mkdtempSync(join(tmpdir(), "nova-cost-audit-"));
-  for (const k of Object.keys(process.env)) delete process.env[k];
+  for (const k of Object.keys(process.env)) Reflect.deleteProperty(process.env, k);
   Object.assign(process.env, originalEnv, { LLAMACTL_MCP_AUDIT_DIR: auditDir });
 });
 afterEach(() => {
-  for (const k of Object.keys(process.env)) delete process.env[k];
+  for (const k of Object.keys(process.env)) Reflect.deleteProperty(process.env, k);
   Object.assign(process.env, originalEnv);
   rmSync(dir, { recursive: true, force: true });
   rmSync(auditDir, { recursive: true, force: true });
@@ -171,6 +174,7 @@ describe("computeCostSnapshot — pricing join (N.3.4)", () => {
   });
 
   function writePricing(name: string, body: string): void {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- file under the test-owned mkdtempSync pricing tempdir; writing canned pricing YAML
     writeFileSync(join(pricingDir, name), body);
   }
 
@@ -331,7 +335,7 @@ describe("computeCostSnapshot — pricing join (N.3.4)", () => {
         latency_ms: 100,
       },
     ]);
-    const catalog = new Map();
+    const catalog: PricingCatalog = new Map<string, ProviderPricing>();
     catalog.set("openai", {
       provider: "openai",
       models: {
@@ -395,7 +399,7 @@ describe("computeCostSnapshot — pricing join (N.3.4)", () => {
   });
 });
 
-async function connected() {
+async function connected(): Promise<Client> {
   const server = buildNovaMcpServer();
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);

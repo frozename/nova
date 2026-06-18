@@ -44,7 +44,7 @@ async function makeDownstream(
         description: `fake ${t.name}`,
         inputSchema: { value: z.string().optional() },
       },
-      async (input) => {
+      (input) => {
         if (t.captured) t.captured.last = input;
         return { content: [{ type: "text" as const, text: t.response }] };
       },
@@ -64,7 +64,7 @@ async function connectedUpstream(
   await client.connect(clientSide);
   return {
     client,
-    close: async () => {
+    close: async (): Promise<void> => {
       await client.close();
     },
   };
@@ -82,7 +82,7 @@ let originalStderrWrite: typeof process.stderr.write | null = null;
 beforeEach(() => {
   stderrWrites = [];
   originalStderrWrite = process.stderr.write.bind(process.stderr);
-  process.stderr.write = (chunk: unknown) => {
+  process.stderr.write = (chunk: unknown): boolean => {
     stderrWrites.push(typeof chunk === "string" ? chunk : String(chunk));
     return true;
   };
@@ -181,7 +181,7 @@ describe("facade/proxy mountProxyTools", () => {
         description: "native",
         inputSchema: {},
       },
-      async () => ({ content: [{ type: "text" as const, text: "native-response" }] }),
+      () => ({ content: [{ type: "text" as const, text: "native-response" }] }),
     );
 
     const result = await mountProxyTools(upstream, [d1], ["foo.bar"]);
@@ -202,7 +202,7 @@ describe("facade/proxy mountProxyTools", () => {
     const d1 = await makeDownstream("d1", [{ name: "boom.tool", response: "unused" }]);
     // Replace the downstream client's callTool with a rejecting stub.
     const originalCallTool = d1.client.callTool.bind(d1.client);
-    (d1.client as unknown as { callTool: unknown }).callTool = () =>
+    (d1.client as unknown as { callTool: unknown }).callTool = (): Promise<never> =>
       Promise.reject(new Error("boom"));
 
     const upstream = new McpServer({ name: "up", version: "0.0.0" });

@@ -38,7 +38,7 @@ const PRIORITY: Provenance[] = ["llamactl", "sirius", "embersynth"];
  * `undefined` if the shape is missing or JSON parse fails — caller
  * treats that as a failed downstream.
  */
-function parseTextContent(result: CallToolResult): unknown | undefined {
+function parseTextContent(result: CallToolResult): unknown {
   const content = result.content;
   if (!Array.isArray(content) || content.length === 0) return undefined;
   const first = content[0];
@@ -111,6 +111,130 @@ const INPUT_SCHEMA = {
     .describe("Catalog scope forwarded to llamactl.catalog.list. Ignored by other downstreams."),
 };
 
+interface SourceResult {
+  source: Provenance;
+  entries: NormalizedEntry[];
+}
+
+interface FailureSink {
+  failed: string[];
+  errors: Record<string, string>;
+}
+
+/** Best-effort text of a downstream `isError` result, for surfacing
+ *  in the per-source error map. */
+function errorTextOf(result: CallToolResult): string {
+  const c = result.content;
+  if (Array.isArray(c) && c[0]?.type === "text" && typeof c[0].text === "string") {
+    return c[0].text;
+  }
+  return "downstream returned isError";
+}
+
+/** Invoke one downstream, normalize its payload, and fold any failure
+ *  into `sink`. Never throws — a failed source yields empty entries so
+ *  the aggregate is partial, not fatal. */
+async function collectSource(
+  source: Provenance,
+  invoke: () => Promise<CallToolResult>,
+  normalize: (payload: unknown) => NormalizedEntry[],
+  sink: FailureSink,
+): Promise<SourceResult> {
+  try {
+    const res = await invoke();
+    if (res.isError) {
+      throw new Error(errorTextOf(res));
+    }
+    const parsed = parseTextContent(res);
+    if (parsed === undefined) {
+      throw new Error("could not parse downstream response");
+    }
+    return { source, entries: normalize(parsed) };
+  } catch (err) {
+    sink.failed.push(source);
+    sink.errors[source] = err instanceof Error ? err.message : String(err);
+    return { source, entries: [] };
+  }
+}
+
+/** Merge per-source entries in stable PRIORITY order. First occurrence
+ *  of an id wins; later sources append to `alsoAvailableIn`. */
+function mergeByPriority(perSource: Partial<Record<Provenance, NormalizedEntry[]>>): MergedModel[] {
+  const winners = new Map<string, MergedModel>();
+  for (const source of PRIORITY) {
+    const entries = perSource[source];
+    if (!entries) continue;
+    for (const e of entries) {
+      const existing = winners.get(e.id);
+      if (!existing) {
+        winners.set(e.id, { id: e.id, provenance: source, details: e.details });
+        continue;
+      }
+      existing.alsoAvailableIn = existing.alsoAvailableIn ?? [];
+      if (!existing.alsoAvailableIn.includes(source)) {
+        existing.alsoAvailableIn.push(source);
+      }
+    }
+  }
+  return [...winners.values()];
+}
+
+/** The call plan: which downstream tool + normalizer each provenance
+ *  uses. `scope` only flows to llamactl. */
+function buildCalls(
+  byName: Partial<Record<Provenance, Downstream>>,
+  scope: string,
+  sink: FailureSink,
+): Promise<SourceResult>[] {
+  const calls: Promise<SourceResult>[] = [];
+  const llamactl = byName.llamactl;
+  if (llamactl) {
+    calls.push(
+      collectSource(
+        "llamactl",
+        () =>
+          llamactl.client.callTool({
+            name: "llamactl.catalog.list",
+            arguments: { scope },
+          }) as Promise<CallToolResult>,
+        normalizeLlamactl,
+        sink,
+      ),
+    );
+  }
+  const sirius = byName.sirius;
+  if (sirius) {
+    calls.push(
+      collectSource(
+        "sirius",
+        () =>
+          sirius.client.callTool({
+            name: "sirius.models.list",
+            arguments: {},
+          }) as Promise<CallToolResult>,
+        normalizeSirius,
+        sink,
+      ),
+    );
+  }
+  const embersynth = byName.embersynth;
+  if (embersynth) {
+    calls.push(
+      collectSource(
+        "embersynth",
+        () =>
+          embersynth.client.callTool({
+            name: "embersynth.synthetic.list",
+            arguments: {},
+          }) as Promise<CallToolResult>,
+        normalizeEmbersynth,
+        sink,
+      ),
+    );
+  }
+  return calls;
+}
+
 export function registerUnifiedTools(server: McpServer, downstreams: Downstream[]): void {
   server.registerTool(
     "nova.models.list",
@@ -131,86 +255,11 @@ export function registerUnifiedTools(server: McpServer, downstreams: Downstream[
         }
       }
 
-      // Fire every configured call in parallel.
-      const calls: Promise<{ source: Provenance; entries: NormalizedEntry[] }>[] = [];
-      const failed: string[] = [];
-      const errors: Record<string, string> = {};
-
-      async function run(
-        source: Provenance,
-        invoke: () => Promise<CallToolResult>,
-        normalize: (payload: unknown) => NormalizedEntry[],
-      ): Promise<{ source: Provenance; entries: NormalizedEntry[] }> {
-        try {
-          const res = await invoke();
-          if (res.isError) {
-            const msg = (() => {
-              const c = res.content;
-              if (Array.isArray(c) && c[0]?.type === "text" && typeof c[0].text === "string") {
-                return c[0].text;
-              }
-              return "downstream returned isError";
-            })();
-            throw new Error(msg);
-          }
-          const parsed = parseTextContent(res);
-          if (parsed === undefined) {
-            throw new Error("could not parse downstream response");
-          }
-          return { source, entries: normalize(parsed) };
-        } catch (err) {
-          failed.push(source);
-          errors[source] = err instanceof Error ? err.message : String(err);
-          return { source, entries: [] };
-        }
-      }
-
-      if (byName.llamactl) {
-        const d = byName.llamactl;
-        calls.push(
-          run(
-            "llamactl",
-            () =>
-              d.client.callTool({
-                name: "llamactl.catalog.list",
-                arguments: { scope },
-              }) as Promise<CallToolResult>,
-            normalizeLlamactl,
-          ),
-        );
-      }
-      if (byName.sirius) {
-        const d = byName.sirius;
-        calls.push(
-          run(
-            "sirius",
-            () =>
-              d.client.callTool({
-                name: "sirius.models.list",
-                arguments: {},
-              }) as Promise<CallToolResult>,
-            normalizeSirius,
-          ),
-        );
-      }
-      if (byName.embersynth) {
-        const d = byName.embersynth;
-        calls.push(
-          run(
-            "embersynth",
-            () =>
-              d.client.callTool({
-                name: "embersynth.synthetic.list",
-                arguments: {},
-              }) as Promise<CallToolResult>,
-            normalizeEmbersynth,
-          ),
-        );
-      }
-
-      // `run` catches internally, so allSettled rejections shouldn't
-      // happen in practice — still use it for defensive symmetry.
-      const settled = await Promise.allSettled(calls);
+      // Fire every configured call in parallel. `collectSource`
+      // catches internally, so allSettled rejections shouldn't happen
+      // in practice — still use it for defensive symmetry.
+      const sink: FailureSink = { failed: [], errors: {} };
+      const settled = await Promise.allSettled(buildCalls(byName, scope, sink));
       const perSource: Partial<Record<Provenance, NormalizedEntry[]>> = {};
       for (const s of settled) {
         if (s.status === "fulfilled") {
@@ -218,33 +267,9 @@ export function registerUnifiedTools(server: McpServer, downstreams: Downstream[
         }
       }
 
-      // Merge in stable priority order. First occurrence wins; later
-      // occurrences of the same id append to `alsoAvailableIn` on the
-      // winning entry.
-      const winners = new Map<string, MergedModel>();
-      for (const source of PRIORITY) {
-        const entries = perSource[source];
-        if (!entries) continue;
-        for (const e of entries) {
-          const existing = winners.get(e.id);
-          if (!existing) {
-            winners.set(e.id, {
-              id: e.id,
-              provenance: source,
-              details: e.details,
-            });
-            continue;
-          }
-          existing.alsoAvailableIn = existing.alsoAvailableIn ?? [];
-          if (!existing.alsoAvailableIn.includes(source)) {
-            existing.alsoAvailableIn.push(source);
-          }
-        }
-      }
-
-      const models: MergedModel[] = [...winners.values()];
-
-      const partial = failed.length > 0 ? { failed, errors } : undefined;
+      const models = mergeByPriority(perSource);
+      const partial =
+        sink.failed.length > 0 ? { failed: sink.failed, errors: sink.errors } : undefined;
 
       return toTextContent(partial ? { models, partial } : { models });
     },

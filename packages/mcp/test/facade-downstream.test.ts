@@ -45,7 +45,7 @@ async function makeFakeDownstream(
       description: "echoes back an input",
       inputSchema: { value: z.string() },
     },
-    async (input) => ({ content: [{ type: "text" as const, text: `echo:${input.value}` }] }),
+    (input) => ({ content: [{ type: "text" as const, text: `echo:${input.value}` }] }),
   );
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
@@ -133,7 +133,7 @@ describe("facade/downstream bootAll partial-failure collection", () => {
     goodServer.registerTool(
       "good.ping",
       { title: "t", description: "t", inputSchema: {} },
-      async () => ({ content: [{ type: "text" as const, text: "pong" }] }),
+      () => ({ content: [{ type: "text" as const, text: "pong" }] }),
     );
     const [goodClientSide, goodServerSide] = InMemoryTransport.createLinkedPair();
     await goodServer.connect(goodServerSide);

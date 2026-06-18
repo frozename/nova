@@ -22,13 +22,14 @@ beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), "nova-mcp-cfg-"));
 });
 afterEach(() => {
-  for (const k of Object.keys(process.env)) delete process.env[k];
+  for (const k of Object.keys(process.env)) Reflect.deleteProperty(process.env, k);
   Object.assign(process.env, originalEnv);
   rmSync(workDir, { recursive: true, force: true });
 });
 
 function writeCfg(name: string, body: string): string {
   const p = join(workDir, name);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- file under the test-owned mkdtempSync tempdir; writing a canned config fixture
   writeFileSync(p, body);
   return p;
 }

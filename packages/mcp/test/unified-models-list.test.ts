@@ -39,7 +39,7 @@ async function makeDownstream(name: string, tools: ToolStub[]): Promise<Downstre
           scope: z.string().optional(),
         },
       },
-      async (input) => {
+      (input) => {
         if (t.captured) t.captured.last = input;
         if (t.throws) {
           throw new Error(t.throws);
@@ -64,7 +64,7 @@ async function connectedUpstream(
   await client.connect(clientSide);
   return {
     client,
-    close: async () => {
+    close: async (): Promise<void> => {
       await client.close();
     },
   };

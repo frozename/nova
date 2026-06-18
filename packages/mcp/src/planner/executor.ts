@@ -54,14 +54,14 @@ export interface PlannerExecutor {
  */
 export const stubPlannerExecutor: PlannerExecutor = {
   name: "stub",
-  async generate(input) {
+  generate(input) {
     // Pick a tool from the filtered catalog so the plan survives
     // the allowlist post-validation gate in `runPlanner`. Empty
     // catalog → fall back to `nova.ops.overview`; `runPlanner` will
     // then reject with `disallowed-tool`, which is the right
     // fail-closed behaviour when nothing is allowed.
     const toolName = input.tools[0]?.name ?? "nova.ops.overview";
-    return {
+    return Promise.resolve({
       ok: true,
       rawPlan: {
         steps: [
@@ -74,14 +74,14 @@ export const stubPlannerExecutor: PlannerExecutor = {
         ],
         reasoning:
           `stub planner acknowledging goal; returning a single ${toolName} call. ` +
-          `Real LLM wiring uses @nova/mcp's createLlmExecutor. (${input.tools.length} tool${input.tools.length === 1 ? "" : "s"} in the allowlist)`,
+          `Real LLM wiring uses @nova/mcp's createLlmExecutor. (${String(input.tools.length)} tool${input.tools.length === 1 ? "" : "s"} in the allowlist)`,
         requiresConfirmation: false,
       },
       trace: {
         executor: "stub",
         toolCount: input.tools.length,
       },
-    };
+    });
   },
 };
 

@@ -45,9 +45,11 @@ import { type PlannerExecutor, runPlanner } from "./planner/executor.js";
 
 const SERVER_SLUG = "nova";
 
-function readYamlIfExists(path: string): unknown | null {
+function readYamlIfExists(path: string): unknown {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- operator-controlled YAML path (kubeconfig/sirius/embersynth defaults or explicit tool input), read-only existence probe
   if (!existsSync(path)) return null;
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- same operator-controlled YAML path; read-only load
     return parseYaml(readFileSync(path, "utf8"));
   } catch {
     return null;
@@ -135,15 +137,7 @@ export interface BuildNovaMcpServerOptions {
   plannerTools?: PlannerToolDescriptor[];
 }
 
-export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer {
-  const server = new McpServer({
-    name: opts?.name ?? "nova",
-    version: opts?.version ?? "0.0.0",
-  });
-  const plannerTools = opts?.plannerTools ?? [];
-  const plannerAllowlist = opts?.plannerAllowlist;
-  const plannerExecutor = opts?.plannerExecutor;
-
+function registerOverviewTool(server: McpServer): void {
   server.registerTool(
     "nova.ops.overview",
     {
@@ -156,7 +150,7 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
         embersynthConfigPath: z.string().optional(),
       },
     },
-    async (input) => {
+    (input) => {
       const kubePath = input.kubeconfigPath ?? defaultKubeconfigPath();
       const siriusPath = input.siriusProvidersPath ?? defaultSiriusProvidersPath();
       const embPath = input.embersynthConfigPath ?? defaultEmbersynthConfigPath();
@@ -194,8 +188,11 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
       appendAudit({ server: SERVER_SLUG, tool: "nova.ops.overview", input });
       return toTextContent({
         paths: {
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- operator-controlled kubeconfig path; read-only existence probe to report which files were found
           kubeconfig: existsSync(kubePath) ? kubePath : null,
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- operator-controlled sirius-providers path; read-only existence probe
           siriusProviders: existsSync(siriusPath) ? siriusPath : null,
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- operator-controlled embersynth config path; read-only existence probe
           embersynthConfig: existsSync(embPath) ? embPath : null,
         },
         context: ctx?.name ?? null,
@@ -208,7 +205,9 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
       });
     },
   );
+}
 
+function registerHealthcheckTool(server: McpServer): void {
   server.registerTool(
     "nova.ops.healthcheck",
     {
@@ -224,15 +223,19 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
     async (input) => {
       const kubePath = input.kubeconfigPath ?? defaultKubeconfigPath();
       const siriusPath = input.siriusProvidersPath ?? defaultSiriusProvidersPath();
-      const timeoutMs = input.timeoutMs ?? 1500;
+      const timeoutMs = input.timeoutMs;
 
       const kube = readYamlIfExists(kubePath) as KubeconfigShape | null;
       const sirius = readYamlIfExists(siriusPath) as SiriusProvidersShape | null;
       const ctx = kube?.contexts?.find((c) => c.name === kube.currentContext);
       const cluster = kube?.clusters?.find((c) => c.name === ctx?.cluster);
-      const gateways = (cluster?.nodes ?? [])
-        .filter((n) => resolveKind(n) === "gateway" && n.cloud?.baseUrl)
-        .map((n) => ({ name: n.name, baseUrl: n.cloud!.baseUrl }));
+      const gateways = (cluster?.nodes ?? []).flatMap((n) => {
+        const baseUrl = n.cloud?.baseUrl;
+        if (resolveKind(n) !== "gateway" || baseUrl === undefined || baseUrl.length === 0) {
+          return [];
+        }
+        return [{ name: n.name, baseUrl }];
+      });
 
       const gatewayProbes = await Promise.all(
         gateways.map(async (g) => ({
@@ -241,15 +244,20 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
           ...(await probeEndpoint(g.baseUrl, timeoutMs)),
         })),
       );
+      const probeableProviders = (sirius?.providers ?? []).flatMap((p) => {
+        const baseUrl = p.baseUrl;
+        if (typeof baseUrl !== "string" || baseUrl.length === 0) {
+          return [];
+        }
+        return [{ name: p.name, kind: p.kind, baseUrl }];
+      });
       const providerProbes = await Promise.all(
-        (sirius?.providers ?? [])
-          .filter((p) => typeof p.baseUrl === "string" && p.baseUrl.length > 0)
-          .map(async (p) => ({
-            name: p.name,
-            kind: p.kind,
-            baseUrl: p.baseUrl!,
-            ...(await probeEndpoint(p.baseUrl!, timeoutMs)),
-          })),
+        probeableProviders.map(async (p) => ({
+          name: p.name,
+          kind: p.kind,
+          baseUrl: p.baseUrl,
+          ...(await probeEndpoint(p.baseUrl, timeoutMs)),
+        })),
       );
 
       appendAudit({ server: SERVER_SLUG, tool: "nova.ops.healthcheck", input });
@@ -260,7 +268,9 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
       });
     },
   );
+}
 
+function registerCostSnapshotTool(server: McpServer): void {
   server.registerTool(
     "nova.ops.cost.snapshot",
     {
@@ -274,9 +284,9 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
         disablePricing: z.boolean().optional(),
       },
     },
-    async (input) => {
+    (input) => {
       const snapshotOpts: Parameters<typeof computeCostSnapshot>[0] = {
-        days: input.days ?? 7,
+        days: input.days,
       };
       if (input.dir !== undefined) snapshotOpts.dir = input.dir;
       if (input.disablePricing === true) {
@@ -289,7 +299,7 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
         server: SERVER_SLUG,
         tool: "nova.ops.cost.snapshot",
         input: {
-          days: input.days ?? 7,
+          days: input.days,
           dir: input.dir ?? null,
           pricingDir: input.pricingDir ?? null,
           disablePricing: input.disablePricing === true,
@@ -305,7 +315,14 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
       return toTextContent(snapshot);
     },
   );
+}
 
+function registerOperatorPlanTool(
+  server: McpServer,
+  plannerTools: PlannerToolDescriptor[],
+  plannerAllowlist: AllowlistConfig | undefined,
+  plannerExecutor: PlannerExecutor | undefined,
+): void {
   server.registerTool(
     "nova.operator.plan",
     {
@@ -323,7 +340,7 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
     async (input) => {
       const result = await runPlanner({
         goal: input.goal,
-        context: input.context ?? "",
+        context: input.context,
         tools: plannerTools,
         ...(plannerAllowlist ? { allowlist: plannerAllowlist } : {}),
         ...(plannerExecutor ? { executor: plannerExecutor } : {}),
@@ -331,7 +348,7 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
       appendAudit({
         server: SERVER_SLUG,
         tool: "nova.operator.plan",
-        input: { goal: input.goal, contextLen: (input.context ?? "").length },
+        input: { goal: input.goal, contextLen: input.context.length },
         result: result.ok
           ? {
               outcome: "ok",
@@ -361,6 +378,19 @@ export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer 
       });
     },
   );
+}
+
+export function buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer {
+  const server = new McpServer({
+    name: opts?.name ?? "nova",
+    version: opts?.version ?? "0.0.0",
+  });
+  const plannerTools = opts?.plannerTools ?? [];
+
+  registerOverviewTool(server);
+  registerHealthcheckTool(server);
+  registerCostSnapshotTool(server);
+  registerOperatorPlanTool(server, plannerTools, opts?.plannerAllowlist, opts?.plannerExecutor);
 
   return server;
 }

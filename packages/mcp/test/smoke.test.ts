@@ -29,6 +29,7 @@ beforeEach(() => {
   siriusPath = join(runtimeDir, "sirius-providers.yaml");
   embPath = join(runtimeDir, "embersynth.yaml");
 
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test fixture path under the mkdtempSync tempdir; writing canned YAML
   writeFileSync(
     kubePath,
     stringifyYaml({
@@ -53,12 +54,14 @@ beforeEach(() => {
       users: [{ name: "me", token: "local" }],
     }),
   );
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test fixture path under the mkdtempSync tempdir; writing canned YAML
   writeFileSync(
     siriusPath,
     stringifyYaml({
       providers: [{ name: "openai", kind: "openai", baseUrl: "http://127.0.0.1:1/v1" }],
     }),
   );
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test fixture path under the mkdtempSync tempdir; writing canned YAML
   writeFileSync(
     embPath,
     stringifyYaml({
@@ -67,20 +70,20 @@ beforeEach(() => {
     }),
   );
 
-  for (const k of Object.keys(process.env)) delete process.env[k];
+  for (const k of Object.keys(process.env)) Reflect.deleteProperty(process.env, k);
   Object.assign(process.env, originalEnv, {
     DEV_STORAGE: runtimeDir,
     LLAMACTL_MCP_AUDIT_DIR: auditDir,
   });
 });
 afterEach(() => {
-  for (const k of Object.keys(process.env)) delete process.env[k];
+  for (const k of Object.keys(process.env)) Reflect.deleteProperty(process.env, k);
   Object.assign(process.env, originalEnv);
   rmSync(runtimeDir, { recursive: true, force: true });
   rmSync(auditDir, { recursive: true, force: true });
 });
 
-async function connected() {
+async function connected(): Promise<Client> {
   const server = buildNovaMcpServer();
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -95,12 +98,17 @@ function textOf(result: unknown): string {
 }
 
 function auditLines(): Record<string, unknown>[] {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test-owned tempdir from mkdtempSync in beforeEach; read-only existence probe
   if (!existsSync(auditDir)) return [];
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- same test-owned tempdir; read-only directory listing
   const files = readdirSync(auditDir).filter((f) => f.startsWith("nova-"));
   const out: Record<string, unknown>[] = [];
   for (const f of files) {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- audit file under the test-owned tempdir; read-only load
     const body = readFileSync(join(auditDir, f), "utf8");
-    for (const line of body.trim().split("\n")) if (line) out.push(JSON.parse(line));
+    for (const line of body.trim().split("\n")) {
+      if (line) out.push(JSON.parse(line) as Record<string, unknown>);
+    }
   }
   return out;
 }

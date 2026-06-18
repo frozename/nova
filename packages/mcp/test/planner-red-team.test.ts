@@ -43,15 +43,15 @@ const benignTools: PlannerToolDescriptor[] = [
 ];
 
 function executor(
-  impl: (input: PlannerExecutorInput) => ReturnType<PlannerExecutor["generate"]>,
+  impl: (input: PlannerExecutorInput) => Awaited<ReturnType<PlannerExecutor["generate"]>>,
   name = "attacker",
 ): PlannerExecutor {
-  return { name, generate: impl };
+  return { name, generate: (input) => Promise.resolve(impl(input)) };
 }
 
 describe("red-team — prompt injection / hallucinated tools", () => {
   test("attacker-emitted deregister is rejected with disallowed-tool", async () => {
-    const attacker = executor(async () => ({
+    const attacker = executor(() => ({
       ok: true,
       rawPlan: {
         steps: [
@@ -78,7 +78,7 @@ describe("red-team — prompt injection / hallucinated tools", () => {
   });
 
   test("hallucinated (non-existent) tool name is rejected", async () => {
-    const attacker = executor(async () => ({
+    const attacker = executor(() => ({
       ok: true,
       rawPlan: {
         steps: [
@@ -103,7 +103,7 @@ describe("red-team — prompt injection / hallucinated tools", () => {
   });
 
   test("mixed allowed + disallowed steps → whole plan rejected, disallowed tools deduped", async () => {
-    const attacker = executor(async () => ({
+    const attacker = executor(() => ({
       ok: true,
       rawPlan: {
         steps: [
@@ -134,7 +134,7 @@ describe("red-team — prompt injection / hallucinated tools", () => {
 describe("red-team — shape violations", () => {
   test("over-long plan (21 steps) rejected at the schema cap", async () => {
     const step = { tool: "llamactl.catalog.list", annotation: "x" };
-    const attacker = executor(async () => ({
+    const attacker = executor(() => ({
       ok: true,
       rawPlan: {
         steps: Array.from({ length: 21 }, () => step),
@@ -154,7 +154,7 @@ describe("red-team — shape violations", () => {
   });
 
   test("missing per-step annotation rejected at the schema gate", async () => {
-    const attacker = executor(async () => ({
+    const attacker = executor(() => ({
       ok: true,
       rawPlan: {
         steps: [{ tool: "llamactl.catalog.list" }],
@@ -173,7 +173,7 @@ describe("red-team — shape violations", () => {
   });
 
   test("executor raw-plan = garbage (non-object) → schema rejects", async () => {
-    const attacker = executor(async () => ({
+    const attacker = executor(() => ({
       ok: true,
       rawPlan: "totally-not-a-plan",
     }));
@@ -191,7 +191,7 @@ describe("red-team — shape violations", () => {
 
 describe("red-team — allowlist edge cases", () => {
   test("empty tool catalog → any plan fails closed", async () => {
-    const attacker = executor(async () => ({
+    const attacker = executor(() => ({
       ok: true,
       rawPlan: {
         steps: [{ tool: "llamactl.catalog.list", annotation: "x" }],
@@ -226,7 +226,7 @@ describe("red-team — allowlist edge cases", () => {
       },
     ];
     let seenTools: string[] = [];
-    const attacker = executor(async (input) => {
+    const attacker = executor((input) => {
       seenTools = input.tools.map((t) => t.name);
       return {
         ok: true,
@@ -255,7 +255,7 @@ describe("red-team — allowlist edge cases", () => {
 
 describe("red-team — executor misbehaviour", () => {
   test("executor reports hard failure → executor-failed (never reaches gate)", async () => {
-    const flaky = executor(async () => ({
+    const flaky = executor(() => ({
       ok: false,
       reason: "model-error",
       message: "simulated outage",
@@ -272,7 +272,7 @@ describe("red-team — executor misbehaviour", () => {
   });
 
   test("executor reports no-tool-call → executor-failed with reason", async () => {
-    const noTool = executor(async () => ({
+    const noTool = executor(() => ({
       ok: false,
       reason: "no-tool-call",
       message: "model replied with free text",

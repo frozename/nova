@@ -27,20 +27,22 @@ const originalEnv = { ...process.env };
 beforeEach(() => {
   runtimeDir = mkdtempSync(join(tmpdir(), "nova-plan-rt-"));
   auditDir = mkdtempSync(join(tmpdir(), "nova-plan-audit-"));
-  for (const k of Object.keys(process.env)) delete process.env[k];
+  for (const k of Object.keys(process.env)) Reflect.deleteProperty(process.env, k);
   Object.assign(process.env, originalEnv, {
     DEV_STORAGE: runtimeDir,
     LLAMACTL_MCP_AUDIT_DIR: auditDir,
   });
 });
 afterEach(() => {
-  for (const k of Object.keys(process.env)) delete process.env[k];
+  for (const k of Object.keys(process.env)) Reflect.deleteProperty(process.env, k);
   Object.assign(process.env, originalEnv);
   rmSync(runtimeDir, { recursive: true, force: true });
   rmSync(auditDir, { recursive: true, force: true });
 });
 
-async function connected(serverOpts: Parameters<typeof buildNovaMcpServer>[0] = {}) {
+async function connected(
+  serverOpts: Parameters<typeof buildNovaMcpServer>[0] = {},
+): Promise<Client> {
   const server = buildNovaMcpServer(serverOpts);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -55,12 +57,17 @@ function textOf(result: unknown): string {
 }
 
 function auditLines(): Record<string, unknown>[] {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test-owned tempdir from mkdtempSync in beforeEach; read-only existence probe
   if (!existsSync(auditDir)) return [];
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- same test-owned tempdir; read-only directory listing
   const files = readdirSync(auditDir).filter((f) => f.startsWith("nova-"));
   const out: Record<string, unknown>[] = [];
   for (const f of files) {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- audit file under the test-owned tempdir; read-only load
     const body = readFileSync(join(auditDir, f), "utf8");
-    for (const line of body.trim().split("\n")) if (line) out.push(JSON.parse(line));
+    for (const line of body.trim().split("\n")) {
+      if (line) out.push(JSON.parse(line) as Record<string, unknown>);
+    }
   }
   return out;
 }
@@ -120,8 +127,8 @@ describe("nova.operator.plan — MCP tool surface", () => {
   test("injected executor drives plan shape; audit records step count + executor name", async () => {
     const customExecutor: PlannerExecutor = {
       name: "fake-gpt",
-      async generate() {
-        return {
+      generate() {
+        return Promise.resolve({
           ok: true,
           rawPlan: {
             steps: [
@@ -140,7 +147,7 @@ describe("nova.operator.plan — MCP tool surface", () => {
             reasoning: "read + dry-run-mutation, standard two-step flow",
             requiresConfirmation: true,
           },
-        };
+        });
       },
     };
     const client = await connected({
@@ -180,15 +187,15 @@ describe("nova.operator.plan — MCP tool surface", () => {
   test("schema-invalid executor output fails closed — no bypass to operator", async () => {
     const badExecutor: PlannerExecutor = {
       name: "broken",
-      async generate() {
-        return {
+      generate() {
+        return Promise.resolve({
           ok: true,
           rawPlan: {
             // missing `annotation` on the step — should fail Zod
             steps: [{ tool: "llamactl.catalog.list" }],
             reasoning: "bad shape",
           },
-        };
+        });
       },
     };
     const client = await connected({
@@ -221,12 +228,12 @@ describe("nova.operator.plan — MCP tool surface", () => {
   test("executor reports a hard failure → surfaces as executor-failed", async () => {
     const failingExecutor: PlannerExecutor = {
       name: "flaky",
-      async generate() {
-        return {
+      generate() {
+        return Promise.resolve({
           ok: false,
           reason: "model-error",
           message: "upstream 503",
-        };
+        });
       },
     };
     const client = await connected({ plannerExecutor: failingExecutor });
@@ -262,9 +269,9 @@ describe("runPlanner — pure composition", () => {
     let called = 0;
     const exec: PlannerExecutor = {
       name: "counter",
-      async generate() {
+      generate() {
         called++;
-        return { ok: true, rawPlan: {} };
+        return Promise.resolve({ ok: true, rawPlan: {} });
       },
     };
     const result = await runPlanner({

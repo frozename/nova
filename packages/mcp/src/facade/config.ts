@@ -49,7 +49,10 @@ export interface LoadConfigOptions {
 }
 
 export function defaultNovaMcpConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.NOVA_MCP_CONFIG?.trim() || join(homedir(), ".llamactl", "nova-mcp.yaml");
+  const override = env.NOVA_MCP_CONFIG?.trim();
+  return override !== undefined && override.length > 0
+    ? override
+    : join(homedir(), ".llamactl", "nova-mcp.yaml");
 }
 
 const INTERP_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -57,7 +60,7 @@ const INTERP_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 function interpolateString(s: string, env: NodeJS.ProcessEnv): string {
   return s.replaceAll(INTERP_RE, (match, varName: string) => {
     const v = env[varName];
-    return v === undefined ? match : v;
+    return v ?? match;
   });
 }
 
@@ -80,7 +83,9 @@ function interpolate(value: unknown, env: NodeJS.ProcessEnv): unknown {
  */
 export function loadConfig(opts: LoadConfigOptions = {}): NovaMcpConfigV1 | null {
   const path = opts.path ?? defaultNovaMcpConfigPath();
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- operator-controlled config path (caller opt or ~/.llamactl default), read-only existence probe
   if (!existsSync(path)) return null;
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- same operator-controlled config path; read-only load of the facade config
   const raw = readFileSync(path, "utf8");
   const parsed = parseYaml(raw) as unknown;
   const interpolated = interpolate(parsed, process.env);

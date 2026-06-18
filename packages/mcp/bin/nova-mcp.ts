@@ -52,12 +52,12 @@ async function main(): Promise<void> {
   registerUnifiedTools(server, downstreams);
 
   process.stderr.write(
-    `nova-mcp: facade ready — ${downstreams.length} downstreams, ${proxyResult.mounted} proxied tools (${proxyResult.skipped.length} skipped), ${NATIVE_TOOL_NAMES.length} native tools.\n`,
+    `nova-mcp: facade ready — ${String(downstreams.length)} downstreams, ${String(proxyResult.mounted)} proxied tools (${String(proxyResult.skipped.length)} skipped), ${String(NATIVE_TOOL_NAMES.length)} native tools.\n`,
   );
 
   const shutdown = async (signal: string): Promise<void> => {
     process.stderr.write(
-      `nova-mcp: ${signal} received, closing ${downstreams.length} downstreams\n`,
+      `nova-mcp: ${signal} received, closing ${String(downstreams.length)} downstreams\n`,
     );
     await closeAll(downstreams);
     process.exit(0);
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   process.stderr.write("nova-mcp: ready (stdio)\n");
 }
 
-main().catch((err) => {
-  process.stderr.write(`nova-mcp: fatal ${(err as Error).message}\n`);
+main().catch((err: unknown) => {
+  process.stderr.write(`nova-mcp: fatal ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 });

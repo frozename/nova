@@ -17,9 +17,9 @@ interface Recorded {
 
 function makeRecorder(): { fetch: FetchFn; calls: Recorded[] } {
   const calls: Recorded[] = [];
-  const fetchImpl: FetchFn = async (input, init) => {
+  const fetchImpl: FetchFn = (input, init) => {
     calls.push({ url: input, init });
-    return new Response("ok", { status: 200 });
+    return Promise.resolve(new Response("ok", { status: 200 }));
   };
   return { fetch: fetchImpl, calls };
 }
