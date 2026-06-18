@@ -13,9 +13,10 @@
     "typecheck:strict": "tsc --noEmit -p tsconfig.eslint.json",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "lint": "eslint . --max-warnings=0 && npm run typecheck:strict",
+    "lint:no-cross-package-relative": "bun scripts/lint/no-cross-package-relative.ts",
+    "lint": "npm run lint:no-cross-package-relative && eslint . --max-warnings=0 && npm run typecheck:strict",
     "lint:fix": "eslint . --fix",
-    "test": "bun test packages/contracts/test packages/mcp-shared/test packages/mcp/test"
+    "test": "bun test packages/contracts/test packages/mcp-shared/test packages/mcp/test scripts/lint"
   },
   "devDependencies": {
     "@eslint/js": "^9",

@@ -15,6 +15,7 @@ const SOURCE_GLOBS = [
   "packages/**/test/**/*.ts",
   "packages/**/bin/**/*.ts",
   "packages/**/scripts/**/*.ts",
+  "scripts/**/*.ts",
 ];
 
 export default tseslint.config(
