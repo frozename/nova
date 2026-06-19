@@ -10,8 +10,8 @@ conventions only.
 2. Read `README.md` if you need consumer-facing context.
 3. If the task touches schemas in `@novaproto/contracts` or package
    dependencies, plan the cross-repo sync **before** editing —
-   Nova is consumed by llamactl, sirius-gateway, embersynth via
-   `file:` deps. Schema changes are wire-shape changes.
+   Nova is consumed by llamactl, sirius-gateway, embersynth.
+   Schema changes are wire-shape changes.
 
 ## Non-negotiables
 
@@ -19,9 +19,8 @@ conventions only.
   embersynth-specific shapes. Put them in the consumer repo.
 - **Zod 4 only** — `z.record(z.string(), z.unknown())`,
   `.partial()`, `z.discriminatedUnion`. No Zod 3 idioms.
-- **`file:../sibling` for inter-package deps**, not `workspace:*`.
-  `workspace:*` breaks when a consumer links a Nova package from
-  outside this workspace.
+- **`workspace:*` for inter-package deps** — `bun publish`
+  rewrites them to a concrete version range on release.
 - **Bun** only — no `npm`, `yarn`, `pnpm`.
 - **No framework deps in `@novaproto/contracts`.** It's schemas +
   interfaces. Zero runtime side effects.

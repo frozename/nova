@@ -247,8 +247,9 @@ tools. Reconnect / live-refresh is a future slice, not a bug.
 ### Sibling MCP fleet
 
 The Nova-aware MCP fleet has a fourth peer that isn't a downstream of
-this facade: `@penumbra/mcp` (local-first observability + cross-agent
-chat orchestrator) at
+this facade: `@penumbradev/mcp` (local-first observability + cross-agent
+chat orchestrator), published on npm under the `@penumbradev` scope and
+developed locally at
 `/Volumes/WorkSSD/repos/personal/penumbra/packages/mcp/`. It exposes
 `memory.observe`, `memory.recall`, `session.end`,
 `handoff.list_pending`, `handoff.approve`, and `chain.start` — useful
