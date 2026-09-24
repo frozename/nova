@@ -165,6 +165,14 @@ describe('UsageObservationV1Schema', () => {
     }
   });
 
+  test("'unknown' rejects cost attribution fields (currency, pricing_revision)", () => {
+    for (const field of ['currency', 'pricing_revision'] as const) {
+      expect(() =>
+        UsageObservationV1Schema?.parse({ source: 'unknown', [field]: 'USD' }),
+      ).toThrow();
+    }
+  });
+
   test("'unknown' may still carry upstream_request_id (identity, not a count)", () => {
     const parsed = UsageObservationV1Schema?.parse({
       source: 'unknown',
