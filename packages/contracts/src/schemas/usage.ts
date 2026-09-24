@@ -169,16 +169,25 @@ export type UsageRecordV2 = z.infer<typeof UsageRecordV2Schema>;
  * observation returns null rather than fabricating a zero-filled
  * record. Cost maps to `estimated_cost_usd` only when attributed in
  * USD.
+ *
+ * Full-observation rule per kind: chat (and every non-embedding
+ * kind) requires input + output + total. `kind: 'embedding'`
+ * requires only `input_tokens` — embedding calls produce no output
+ * tokens by definition, so `completion_tokens` projects as a
+ * structural 0 (not an unreported count), and `total_tokens` falls
+ * back to `input_tokens` when the upstream didn't report one.
  */
 export function projectUsageRecordV2ToV1(record: UsageRecordV2): UsageRecord | null {
   const o = record.observation;
-  if (
-    o.source !== 'observed' ||
-    o.input_tokens === undefined ||
-    o.output_tokens === undefined ||
-    o.total_tokens === undefined
-  ) {
+  if (o.source !== 'observed' || o.input_tokens === undefined) {
     return null;
+  }
+  let completionTokens = 0;
+  if (record.kind !== 'embedding') {
+    if (o.output_tokens === undefined || o.total_tokens === undefined) {
+      return null;
+    }
+    completionTokens = o.output_tokens;
   }
   return {
     ts: record.ts,
@@ -186,8 +195,8 @@ export function projectUsageRecordV2ToV1(record: UsageRecordV2): UsageRecord | n
     model: record.model,
     kind: record.kind,
     prompt_tokens: o.input_tokens,
-    completion_tokens: o.output_tokens,
-    total_tokens: o.total_tokens,
+    completion_tokens: completionTokens,
+    total_tokens: o.total_tokens ?? o.input_tokens,
     latency_ms: record.latency_ms,
     ...(record.request_id !== undefined ? { request_id: record.request_id } : {}),
     ...(o.cost !== undefined && o.currency === 'USD'

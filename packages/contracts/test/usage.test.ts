@@ -339,3 +339,80 @@ describe('projectUsageRecordV2ToV1', () => {
     expect(eur?.estimated_cost_usd).toBeUndefined();
   });
 });
+
+describe('projectUsageRecordV2ToV1 — embedding kind', () => {
+  const emb = {
+    v: 2,
+    ts: '2026-09-23T12:00:00.000Z',
+    provider: 'openai',
+    model: 'text-embedding-3-small',
+    kind: 'embedding',
+    latency_ms: 42,
+  };
+
+  test('observed input_tokens projects with completion_tokens as a structural 0', () => {
+    const v1 = projectUsageRecordV2ToV1?.({
+      ...emb,
+      observation: {
+        source: 'observed',
+        input_tokens: 5,
+        total_tokens: 5,
+      },
+    });
+    expect(v1).not.toBeNull();
+    expect(v1?.kind).toBe('embedding');
+    expect(v1?.prompt_tokens).toBe(5);
+    expect(v1?.completion_tokens).toBe(0);
+    expect(v1?.total_tokens).toBe(5);
+    expect(() => UsageRecordSchema.parse(v1)).not.toThrow();
+  });
+
+  test('embedding observed without total_tokens still projects — total falls back to input', () => {
+    const v1 = projectUsageRecordV2ToV1?.({
+      ...emb,
+      observation: { source: 'observed', input_tokens: 5 },
+    });
+    expect(v1).not.toBeNull();
+    expect(v1?.prompt_tokens).toBe(5);
+    expect(v1?.completion_tokens).toBe(0);
+    expect(v1?.total_tokens).toBe(5);
+  });
+
+  test('embedding without observed input_tokens → null', () => {
+    expect(
+      projectUsageRecordV2ToV1?.({
+        ...emb,
+        observation: { source: 'observed', total_tokens: 5 },
+      }),
+    ).toBeNull();
+  });
+
+  test('embedding estimated or unknown observation → null', () => {
+    expect(
+      projectUsageRecordV2ToV1?.({
+        ...emb,
+        observation: { source: 'estimated', input_tokens: 5, total_tokens: 5 },
+      }),
+    ).toBeNull();
+    expect(
+      projectUsageRecordV2ToV1?.({
+        ...emb,
+        observation: { source: 'unknown' },
+      }),
+    ).toBeNull();
+  });
+
+  test('chat missing output_tokens still returns null', () => {
+    expect(
+      projectUsageRecordV2ToV1?.({
+        v: 2,
+        ts: '2026-09-23T12:00:00.000Z',
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        kind: 'chat',
+        latency_ms: 10,
+        observation: { source: 'observed', input_tokens: 5, total_tokens: 5 },
+      }),
+    ).toBeNull();
+  });
+});
