@@ -52,7 +52,9 @@ export type UnifiedStreamChunk = z.infer<typeof UnifiedStreamChunkSchema>;
  *  - 'eof': the transport ended without any completion signal —
  *    truncated stream, dropped connection.
  *  - 'error': a done synthesized after an `error` event (e.g. a
- *    router closing out a failed stream).
+ *    router closing out a failed stream). Reserved for wrapping
+ *    layers — the OpenAI-compat adapter never emits it; it
+ *    terminates the stream after the error event instead.
  * Optional — older adapters omit it; consumers treat absent as
  * "provenance unknown" rather than assuming completion.
  */

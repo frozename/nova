@@ -93,18 +93,26 @@ export interface OpenAICompatOptions {
    * storage. Exceptions thrown from the callback are swallowed so a
    * misbehaving logger can't bleed into the response path.
    *
-   * For streaming, fires when the final `stream: true` SSE frame
-   * carries a `usage` block (operators must pass
-   * `stream_options: { include_usage: true }` to get one from
-   * OpenAI-style backends). Absent usage → callback not fired.
+   * For streaming, fires once per `usage` SSE frame (operators must
+   * pass `stream_options: { include_usage: true }` to get them from
+   * OpenAI-style backends) — providers that send cumulative usage on
+   * every chunk therefore produce one call per frame. Absent usage →
+   * callback not fired. The single-record-per-attempt contract lives
+   * on `onUsageObservation`.
    */
   onUsage?: OpenAICompatOnUsage;
   /**
-   * Fires after every successful chat / embedding round-trip and at
-   * natural stream end — including when the upstream sent no usage
-   * data (`observation.source === 'unknown'`). Unlike `onUsage`,
-   * missing component counts stay absent rather than zero-filled.
-   * Exceptions are swallowed like `onUsage`.
+   * Exactly one record per call that reached the upstream.
+   * `createResponse` / `createEmbeddings` fire once after an OK
+   * response; `streamResponse` fires once per attempt that received
+   * an OK HTTP response, on every termination path — upstream
+   * `[DONE]`, EOF, an SSE error frame, consumer `break`/`return`, or
+   * caller abort (the upstream may have performed billable work even
+   * when the stream was cut short). The record carries the LAST
+   * usage frame seen (cumulative last-wins), or
+   * `observation.source === 'unknown'` when none arrived. Unlike
+   * `onUsage`, missing component counts stay absent rather than
+   * zero-filled. Exceptions are swallowed like `onUsage`.
    */
   onUsageObservation?: OpenAICompatOnUsageObservation;
 }
@@ -124,7 +132,11 @@ function contextSignal(context?: ProviderExecutionContext): AbortSignal | undefi
   if (context.signal) signals.push(context.signal);
   if (context.deadline !== undefined) {
     const ms = context.deadline - Date.now();
-    signals.push(ms <= 0 ? AbortSignal.abort() : AbortSignal.timeout(ms));
+    signals.push(
+      ms <= 0
+        ? AbortSignal.abort(new DOMException('The operation timed out.', 'TimeoutError'))
+        : AbortSignal.timeout(ms),
+    );
   }
   if (signals.length === 0) return undefined;
   return signals.length === 1 ? signals[0] : AbortSignal.any(signals);
@@ -147,6 +159,11 @@ function toObservation(
 ): UsageObservationV1 {
   const id = upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {};
   if (!usage) return { source: 'unknown', ...id };
+  const hasCount =
+    typeof usage.prompt_tokens === 'number' ||
+    typeof usage.completion_tokens === 'number' ||
+    typeof usage.total_tokens === 'number';
+  if (!hasCount) return { source: 'unknown', ...id };
   return {
     source: 'observed',
     ...(typeof usage.prompt_tokens === 'number'
@@ -159,6 +176,55 @@ function toObservation(
       ? { total_tokens: usage.total_tokens }
       : {}),
     ...id,
+  };
+}
+
+/**
+ * Rate-limit and server-overload style codes are worth retrying;
+ * everything else (auth, quota, validation) is not. Works on both
+ * OpenAI `code` values ('rate_limit_exceeded', 'server_error') and
+ * `type` values ('overloaded_error'), plus HTTP status numbers.
+ */
+function isRetryableUpstreamCode(code: string): boolean {
+  const c = code.trim().toLowerCase();
+  if (['429', '500', '502', '503', '504', '529'].includes(c)) return true;
+  return (
+    c.includes('rate_limit') ||
+    c.includes('ratelimit') ||
+    c.includes('overload') ||
+    c.includes('server_error') ||
+    c.includes('internal_error') ||
+    c.includes('unavailable') ||
+    c.includes('timeout')
+  );
+}
+
+/**
+ * Translate a mid-stream `{"error": …}` payload member into the
+ * unified error-event shape. OpenAI-style upstreams deliver errors
+ * either as an object ({message, type, code}) or a bare string.
+ */
+function wireErrorToEvent(err: unknown): {
+  message: string;
+  code?: string;
+  retryable: boolean;
+} {
+  let message: string;
+  let code: string | undefined;
+  if (typeof err === 'string') {
+    message = err;
+  } else if (err !== null && typeof err === 'object') {
+    const e = err as { message?: unknown; code?: unknown; type?: unknown };
+    message = typeof e.message === 'string' ? e.message : JSON.stringify(err);
+    const rawCode = e.code ?? e.type;
+    if (rawCode !== null && rawCode !== undefined) code = String(rawCode);
+  } else {
+    message = String(err);
+  }
+  return {
+    message,
+    ...(code !== undefined ? { code } : {}),
+    retryable: code !== undefined && isRetryableUpstreamCode(code),
   };
 }
 
@@ -289,14 +355,30 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         teardown.abort();
         return;
       }
-      if (!res.body) {
+      type DoneEvent = Extract<UnifiedStreamEvent, { type: 'done' }>;
+      let lastFinish: DoneEvent = { type: 'done', finish_reason: 'stop' };
+      let sawFinish = false;
+      let lastUsage: WireUsage | undefined;
+      let lastModel = request.model;
+      let lastId = '';
+      // Exactly one observation per attempt that reached the upstream,
+      // fired from the cleanup path so every termination — [DONE],
+      // EOF, error frame, consumer break, caller abort — produces
+      // exactly one record carrying the last usage frame seen.
+      let observationFired = false;
+      const fireStreamObservation = (): void => {
+        if (observationFired) return;
+        observationFired = true;
         fireObservation({
           provider: opts.name,
-          model: request.model,
+          model: lastModel,
           kind: 'chat',
           latency_ms: Date.now() - startedAt,
-          observation: { source: 'unknown' },
+          observation: toObservation(lastUsage, lastId || undefined),
         });
+      };
+      if (!res.body) {
+        fireStreamObservation();
         yield { type: 'done', finish_reason: 'stop', completion: 'eof' };
         teardown.abort();
         return;
@@ -304,125 +386,163 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      type DoneEvent = Extract<UnifiedStreamEvent, { type: 'done' }>;
-      let lastFinish: DoneEvent = { type: 'done', finish_reason: 'stop' };
-      let sawFinish = false;
-      let usageSeen = false;
-      let lastModel = request.model;
-      let lastId = '';
+      type FrameOutcome = {
+        event?: UnifiedStreamEvent;
+        terminal?: 'done' | 'error';
+      };
+      const handlePayload = (payload: string): FrameOutcome => {
+        if (payload === '[DONE]') return { terminal: 'done' };
+        try {
+          const chunk = JSON.parse(payload) as {
+            id?: string;
+            object?: string;
+            model?: string;
+            created?: number;
+            choices?: Array<{
+              index?: number;
+              delta?: {
+                role?: 'assistant' | 'tool';
+                content?: string | null;
+                tool_calls?: Array<{
+                  index: number;
+                  id?: string;
+                  type?: 'function';
+                  function?: { name?: string; arguments?: string };
+                }>;
+              };
+              finish_reason?: string | null;
+            }>;
+            usage?: WireUsage;
+            error?: unknown;
+          };
+          if (chunk.model) lastModel = chunk.model;
+          if (chunk.id) lastId = chunk.id;
+          // An upstream error delivered as a data frame is terminal —
+          // one error event, then the stream ends with no done event,
+          // mirroring the !res.ok path.
+          if (chunk.error !== null && chunk.error !== undefined) {
+            return {
+              event: { type: 'error', error: wireErrorToEvent(chunk.error) },
+              terminal: 'error',
+            };
+          }
+          // Usage frame — OpenAI emits this as the penultimate chunk
+          // when the client passes `stream_options: { include_usage:
+          // true }`. Legacy onUsage fires per frame; the observation
+          // keeps only the last (cumulative) frame for the single
+          // record fired at cleanup.
+          if (chunk.usage) {
+            lastUsage = chunk.usage;
+            fireUsage({
+              provider: opts.name,
+              model: lastModel,
+              kind: 'chat',
+              prompt_tokens: chunk.usage.prompt_tokens ?? 0,
+              completion_tokens: chunk.usage.completion_tokens ?? 0,
+              total_tokens: chunk.usage.total_tokens ?? 0,
+              latency_ms: Date.now() - startedAt,
+            });
+          }
+          if (!chunk.choices || chunk.choices.length === 0) return {};
+          const finish = chunk.choices[0]?.finish_reason;
+          if (finish) {
+            sawFinish = true;
+            lastFinish = {
+              type: 'done',
+              finish_reason: finish as DoneEvent['finish_reason'],
+            };
+          }
+          return {
+            event: {
+              type: 'chunk',
+              chunk: {
+                id: chunk.id ?? '',
+                object: 'chat.completion.chunk',
+                model: chunk.model ?? request.model,
+                created: chunk.created ?? Math.floor(Date.now() / 1000),
+                choices: chunk.choices.map((c) => ({
+                  index: c.index ?? 0,
+                  delta: {
+                    ...(c.delta?.role ? { role: c.delta.role } : {}),
+                    ...(c.delta?.content !== undefined ? { content: c.delta.content } : {}),
+                    ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
+                  },
+                  ...(c.finish_reason !== undefined
+                    ? { finish_reason: c.finish_reason as DoneEvent['finish_reason'] }
+                    : {}),
+                })),
+              },
+            },
+          };
+        } catch {
+          // Ignore non-JSON data lines; some providers emit keep-alives.
+          return {};
+        }
+      };
+      const handleFrame = (frame: string): FrameOutcome => {
+        const f = frame.trim();
+        if (!f.startsWith('data:')) return {};
+        return handlePayload(f.slice(5).trim());
+      };
       try {
-        while (true) {
-          if (fetchSignal.aborted) break;
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
+        let eof = false;
+        while (!eof) {
+          // Caller abort is terminal no matter when it lands — checking
+          // the caller's signal (not the merged fetch signal) before
+          // every read makes an abort delivered while the generator
+          // sits at a yield throw instead of ending with a done.
+          if (signal?.aborted) {
+            throw signal.reason ?? new DOMException('This operation was aborted', 'AbortError');
+          }
+          let read: Awaited<ReturnType<typeof reader.read>>;
+          try {
+            read = await reader.read();
+          } catch (err) {
+            // An abort delivered mid-read rejects the reader — surface
+            // the caller's reason rather than the transport's.
+            if (signal?.aborted) throw signal.reason ?? err;
+            throw err;
+          }
+          eof = read.done;
+          // On EOF the decoder is final-flushed (no `stream` flag) so
+          // a split multi-byte sequence isn't dropped; the residual
+          // buffer is then processed line-wise below.
+          buffer += read.done
+            ? decoder.decode()
+            : decoder.decode(read.value, { stream: true });
           // OpenAI SSE frames are separated by blank lines; each frame
           // is a `data: {...}` line (plus `event:` in some dialects).
           let nl: number;
           while ((nl = buffer.indexOf('\n\n')) !== -1) {
-            const frame = buffer.slice(0, nl).trim();
+            const frame = buffer.slice(0, nl);
             buffer = buffer.slice(nl + 2);
-            if (!frame.startsWith('data:')) continue;
-            const payload = frame.slice(5).trim();
-            if (payload === '[DONE]') {
-              if (!usageSeen) {
-                fireObservation({
-                  provider: opts.name,
-                  model: lastModel,
-                  kind: 'chat',
-                  latency_ms: Date.now() - startedAt,
-                  observation: toObservation(undefined, lastId || undefined),
-                });
-              }
+            const outcome = handleFrame(frame);
+            if (outcome.event) yield outcome.event;
+            if (outcome.terminal === 'done') {
               yield { ...lastFinish, completion: 'upstream' };
               return;
             }
-            try {
-              const chunk = JSON.parse(payload) as {
-                id?: string;
-                object?: string;
-                model?: string;
-                created?: number;
-                choices?: Array<{
-                  index?: number;
-                  delta?: {
-                    role?: 'assistant' | 'tool';
-                    content?: string | null;
-                    tool_calls?: Array<{
-                      index: number;
-                      id?: string;
-                      type?: 'function';
-                      function?: { name?: string; arguments?: string };
-                    }>;
-                  };
-                  finish_reason?: string | null;
-                }>;
-                usage?: {
-                  prompt_tokens?: number;
-                  completion_tokens?: number;
-                  total_tokens?: number;
-                };
-              };
-              if (chunk.model) lastModel = chunk.model;
-              if (chunk.id) lastId = chunk.id;
-              // Usage frame — OpenAI emits this as the penultimate
-              // chunk when the client passes `stream_options:
-              // { include_usage: true }`. Fire onUsage + fall through
-              // (there may be a trailing [DONE] after).
-              if (chunk.usage) {
-                usageSeen = true;
-                fireUsage({
-                  provider: opts.name,
-                  model: lastModel,
-                  kind: 'chat',
-                  prompt_tokens: chunk.usage.prompt_tokens ?? 0,
-                  completion_tokens: chunk.usage.completion_tokens ?? 0,
-                  total_tokens: chunk.usage.total_tokens ?? 0,
-                  latency_ms: Date.now() - startedAt,
-                });
-                fireObservation({
-                  provider: opts.name,
-                  model: lastModel,
-                  kind: 'chat',
-                  latency_ms: Date.now() - startedAt,
-                  observation: toObservation(chunk.usage, chunk.id ?? (lastId || undefined)),
-                });
+            if (outcome.terminal === 'error') return;
+          }
+          if (eof && buffer.trim().length > 0) {
+            // The transport closed without a final blank line — any
+            // complete `data:` line still buffered is a real frame
+            // (e.g. a trailing `data: [DONE]`).
+            const residual = buffer;
+            buffer = '';
+            for (const line of residual.split('\n')) {
+              const outcome = handleFrame(line);
+              if (outcome.event) yield outcome.event;
+              if (outcome.terminal === 'done') {
+                yield { ...lastFinish, completion: 'upstream' };
+                return;
               }
-              if (!chunk.choices || chunk.choices.length === 0) continue;
-              const finish = chunk.choices[0]?.finish_reason;
-              if (finish) {
-                sawFinish = true;
-                lastFinish = {
-                  type: 'done',
-                  finish_reason: finish as DoneEvent['finish_reason'],
-                };
-              }
-              yield {
-                type: 'chunk',
-                chunk: {
-                  id: chunk.id ?? '',
-                  object: 'chat.completion.chunk',
-                  model: chunk.model ?? request.model,
-                  created: chunk.created ?? Math.floor(Date.now() / 1000),
-                  choices: chunk.choices.map((c) => ({
-                    index: c.index ?? 0,
-                    delta: {
-                      ...(c.delta?.role ? { role: c.delta.role } : {}),
-                      ...(c.delta?.content !== undefined ? { content: c.delta.content } : {}),
-                      ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
-                    },
-                    ...(c.finish_reason !== undefined
-                      ? { finish_reason: c.finish_reason as DoneEvent['finish_reason'] }
-                      : {}),
-                  })),
-                },
-              };
-            } catch {
-              // Ignore non-JSON data lines; some providers emit keep-alives.
+              if (outcome.terminal === 'error') return;
             }
           }
         }
       } finally {
+        fireStreamObservation();
         try {
           await reader.cancel();
           reader.releaseLock();
@@ -430,15 +550,6 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
           // best-effort teardown
         }
         teardown.abort();
-      }
-      if (!usageSeen) {
-        fireObservation({
-          provider: opts.name,
-          model: lastModel,
-          kind: 'chat',
-          latency_ms: Date.now() - startedAt,
-          observation: toObservation(undefined, lastId || undefined),
-        });
       }
       yield {
         ...lastFinish,

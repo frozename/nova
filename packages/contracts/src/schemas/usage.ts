@@ -124,6 +124,8 @@ export const UsageObservationV1Schema = z
       'cache_read_tokens',
       'cache_write_tokens',
       'cost',
+      'currency',
+      'pricing_revision',
     ] as const) {
       if (ctx.value[key] !== undefined) {
         ctx.issues.push({
