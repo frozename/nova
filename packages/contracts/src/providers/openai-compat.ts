@@ -1,4 +1,4 @@
-import type { AiProvider } from '../provider.js';
+import type { AiProvider, ProviderExecutionContext } from '../provider.js';
 import type { ModelInfo } from '../schemas/models.js';
 import type { ProviderHealth } from '../schemas/health.js';
 import type { UnifiedAiRequest, UnifiedAiResponse } from '../schemas/chat.js';
@@ -7,7 +7,7 @@ import type {
   UnifiedEmbeddingResponse,
 } from '../schemas/embeddings.js';
 import type { UnifiedStreamEvent } from '../schemas/stream.js';
-import type { UsageKind } from '../schemas/usage.js';
+import type { UsageKind, UsageObservationV1 } from '../schemas/usage.js';
 
 /**
  * Callback fired after a successful chat or embedding round-trip
@@ -30,6 +30,28 @@ export interface OpenAICompatUsageSnapshot {
 }
 
 export type OpenAICompatOnUsage = (snapshot: OpenAICompatUsageSnapshot) => void;
+
+/**
+ * Provenance-honest counterpart to `OpenAICompatUsageSnapshot`.
+ * `observation` carries only the counts the upstream actually
+ * reported (`source: 'observed'`, missing components absent), or
+ * `source: 'unknown'` when the upstream returned no usage block —
+ * never a zero-filled stand-in. Consumers building `UsageRecordV2`
+ * rows can copy `observation` verbatim.
+ */
+export interface OpenAICompatUsageObservation {
+  provider: string;
+  model: string;
+  kind: UsageKind;
+  latency_ms: number;
+  observation: UsageObservationV1;
+  request_id?: string;
+  attempt_id?: string;
+}
+
+export type OpenAICompatOnUsageObservation = (
+  snapshot: OpenAICompatUsageObservation,
+) => void;
 
 /**
  * OpenAI-compatible provider adapter. Covers every upstream that
@@ -71,16 +93,172 @@ export interface OpenAICompatOptions {
    * storage. Exceptions thrown from the callback are swallowed so a
    * misbehaving logger can't bleed into the response path.
    *
-   * For streaming, fires when the final `stream: true` SSE frame
-   * carries a `usage` block (operators must pass
-   * `stream_options: { include_usage: true }` to get one from
-   * OpenAI-style backends). Absent usage → callback not fired.
+   * For streaming, fires once per `usage` SSE frame (operators must
+   * pass `stream_options: { include_usage: true }` to get them from
+   * OpenAI-style backends) — providers that send cumulative usage on
+   * every chunk therefore produce one call per frame. Absent usage →
+   * callback not fired. The single-record-per-attempt contract lives
+   * on `onUsageObservation`.
    */
   onUsage?: OpenAICompatOnUsage;
+  /**
+   * Exactly one record per call that reached the upstream.
+   * `createResponse` / `createEmbeddings` fire once after an OK
+   * response; `streamResponse` fires once per attempt that received
+   * an OK HTTP response, on every termination path — upstream
+   * `[DONE]`, EOF, an SSE error frame, consumer `break`/`return`, or
+   * caller abort (the upstream may have performed billable work even
+   * when the stream was cut short). On stream paths that emit a
+   * terminal event, the observation fires strictly after that
+   * `done`/`error` event has been yielded — the consumer always
+   * sees the terminal event first; on paths with no terminal event
+   * (consumer break, caller abort) it fires from the same
+   * single-shot cleanup. The record carries the LAST usage frame
+   * seen that held at least one numeric count (cumulative
+   * last-wins; a count-less usage frame never erases an earlier
+   * frame), or `observation.source === 'unknown'` when none
+   * arrived. Unlike `onUsage`, missing component counts stay
+   * absent rather than zero-filled. Exceptions are swallowed like
+   * `onUsage`.
+   */
+  onUsageObservation?: OpenAICompatOnUsageObservation;
 }
 
 function trimTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+/**
+ * Merge the caller's signal with a deadline-derived timeout. An
+ * already-past deadline yields a pre-aborted signal so fetch rejects
+ * before the request leaves.
+ */
+function contextSignal(context?: ProviderExecutionContext): AbortSignal | undefined {
+  if (!context) return undefined;
+  const signals: AbortSignal[] = [];
+  if (context.signal) signals.push(context.signal);
+  if (context.deadline !== undefined) {
+    const ms = context.deadline - Date.now();
+    signals.push(
+      ms <= 0
+        ? AbortSignal.abort(new DOMException('The operation timed out.', 'TimeoutError'))
+        : AbortSignal.timeout(ms),
+    );
+  }
+  if (signals.length === 0) return undefined;
+  return signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+}
+
+type WireUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+/**
+ * Whether a wire usage block carries at least one numeric count —
+ * the bar for the stream observation's last-wins update. A
+ * count-less usage frame (`usage: {}`) never displaces an earlier
+ * observed frame.
+ */
+function hasNumericUsageCount(usage: WireUsage): boolean {
+  return (
+    typeof usage.prompt_tokens === 'number' ||
+    typeof usage.completion_tokens === 'number' ||
+    typeof usage.total_tokens === 'number'
+  );
+}
+
+/**
+ * Translate a raw wire `usage` block into a provenance-tagged
+ * observation. Only fields the upstream actually sent are carried;
+ * absent usage (or absent components) never become 0.
+ */
+function toObservation(
+  usage: WireUsage | undefined,
+  upstreamRequestId?: string,
+): UsageObservationV1 {
+  const id = upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {};
+  if (!usage) return { source: 'unknown', ...id };
+  if (!hasNumericUsageCount(usage)) return { source: 'unknown', ...id };
+  return {
+    source: 'observed',
+    ...(typeof usage.prompt_tokens === 'number'
+      ? { input_tokens: usage.prompt_tokens }
+      : {}),
+    ...(typeof usage.completion_tokens === 'number'
+      ? { output_tokens: usage.completion_tokens }
+      : {}),
+    ...(typeof usage.total_tokens === 'number'
+      ? { total_tokens: usage.total_tokens }
+      : {}),
+    ...id,
+  };
+}
+
+/**
+ * Rate-limit and server-overload style codes are worth retrying;
+ * everything else (auth, quota, validation) is not. Works on both
+ * OpenAI `code` values ('rate_limit_exceeded', 'server_error') and
+ * `type` values ('overloaded_error'), plus HTTP status numbers.
+ */
+function isRetryableUpstreamCode(code: string): boolean {
+  const c = code.trim().toLowerCase();
+  if (['429', '500', '502', '503', '504', '529'].includes(c)) return true;
+  return (
+    c.includes('rate_limit') ||
+    c.includes('ratelimit') ||
+    c.includes('overload') ||
+    c.includes('server_error') ||
+    c.includes('internal_error') ||
+    c.includes('unavailable') ||
+    c.includes('timeout')
+  );
+}
+
+/**
+ * Whether a wire `error` member actually describes an upstream
+ * error: a non-empty string, or a non-array object carrying at
+ * least one of `message`, `type`, or `code`. Falsy and empty
+ * placeholders (`false`, `""`, `0`, `[]`, `{}`) are ignored — some
+ * upstreams emit them on healthy frames.
+ */
+function isWireError(err: unknown): boolean {
+  if (typeof err === 'string') return err.length > 0;
+  if (typeof err !== 'object' || err === null || Array.isArray(err)) {
+    return false;
+  }
+  const e = err as { message?: unknown; type?: unknown; code?: unknown };
+  return e.message !== undefined || e.type !== undefined || e.code !== undefined;
+}
+
+/**
+ * Translate a mid-stream `{"error": …}` payload member into the
+ * unified error-event shape. OpenAI-style upstreams deliver errors
+ * either as an object ({message, type, code}) or a bare string.
+ */
+function wireErrorToEvent(err: unknown): {
+  message: string;
+  code?: string;
+  retryable: boolean;
+} {
+  let message: string;
+  let code: string | undefined;
+  if (typeof err === 'string') {
+    message = err;
+  } else if (err !== null && typeof err === 'object') {
+    const e = err as { message?: unknown; code?: unknown; type?: unknown };
+    message = typeof e.message === 'string' ? e.message : JSON.stringify(err);
+    const rawCode = e.code ?? e.type;
+    if (rawCode !== null && rawCode !== undefined) code = String(rawCode);
+  } else {
+    message = String(err);
+  }
+  return {
+    message,
+    ...(code !== undefined ? { code } : {}),
+    retryable: code !== undefined && isRetryableUpstreamCode(code),
+  };
 }
 
 export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvider {
@@ -109,18 +287,42 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
     }
   }
 
+  function fireObservation(snapshot: OpenAICompatUsageObservation): void {
+    if (!opts.onUsageObservation) return;
+    try {
+      opts.onUsageObservation(snapshot);
+    } catch {
+      // Same fire-and-forget contract as fireUsage.
+    }
+  }
+
+  function contextIdentity(context?: ProviderExecutionContext): {
+    request_id?: string;
+    attempt_id?: string;
+  } {
+    return {
+      ...(context?.requestId ? { request_id: context.requestId } : {}),
+      ...(context?.attemptId ? { attempt_id: context.attemptId } : {}),
+    };
+  }
+
   return {
     name: opts.name,
     displayName: opts.displayName ?? opts.name,
 
-    async createResponse(request: UnifiedAiRequest): Promise<UnifiedAiResponse> {
+    async createResponse(
+      request: UnifiedAiRequest,
+      context?: ProviderExecutionContext,
+    ): Promise<UnifiedAiResponse> {
       const startedAt = Date.now();
       // Strip nova-only fields before sending upstream.
       const { capabilities: _c, providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}) };
+      const signal = contextSignal(context);
       const res = await call('/chat/completions', {
         method: 'POST',
         body: JSON.stringify({ ...body, stream: false }),
+        ...(signal ? { signal } : {}),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -139,6 +341,14 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
           latency_ms: latencyMs,
         });
       }
+      fireObservation({
+        provider: opts.name,
+        model: raw.model ?? request.model,
+        kind: 'chat',
+        latency_ms: latencyMs,
+        observation: toObservation(raw.usage, raw.id || undefined),
+        ...contextIdentity(context),
+      });
       return {
         ...raw,
         latencyMs,
@@ -152,101 +362,146 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
     ): AsyncIterable<UnifiedStreamEvent> {
       const { capabilities: _c, providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}), stream: true };
+      // Internal controller so a consumer `break`/`return` tears the
+      // upstream request down — cancelling the body reader alone
+      // doesn't propagate to the server.
+      const teardown = new AbortController();
+      const fetchSignal = signal
+        ? AbortSignal.any([signal, teardown.signal])
+        : teardown.signal;
+      // A caller abort throws no matter when it lands — the caller's
+      // own signal (not the merged fetch signal) is checked before
+      // every read and around every yield, so an abort delivered
+      // while the generator sits at a yield throws the signal's
+      // reason instead of letting a buffered event (or done) through.
+      const throwIfCallerAborted = (): void => {
+        if (signal?.aborted) {
+          throw signal.reason ?? new DOMException('This operation was aborted', 'AbortError');
+        }
+      };
+      const startedAt = Date.now();
       const res = await call('/chat/completions', {
         method: 'POST',
         body: JSON.stringify(body),
-        ...(signal ? { signal } : {}),
+        signal: fetchSignal,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        yield {
-          type: 'error',
-          error: {
-            message: `${opts.name} ${res.status}: ${text.slice(0, 500)}`,
-            code: String(res.status),
-            retryable: res.status >= 500 || res.status === 429,
-          },
-        };
+        try {
+          throwIfCallerAborted();
+          yield {
+            type: 'error',
+            error: {
+              message: `${opts.name} ${res.status}: ${text.slice(0, 500)}`,
+              code: String(res.status),
+              retryable: res.status >= 500 || res.status === 429,
+            },
+          };
+          throwIfCallerAborted();
+        } finally {
+          teardown.abort();
+        }
         return;
       }
+      type DoneEvent = Extract<UnifiedStreamEvent, { type: 'done' }>;
+      let lastFinish: DoneEvent = { type: 'done', finish_reason: 'stop' };
+      let sawFinish = false;
+      let lastUsage: WireUsage | undefined;
+      let lastModel = request.model;
+      let lastId = '';
+      // Exactly one observation per attempt that reached the upstream,
+      // fired from the cleanup path so every termination — [DONE],
+      // EOF, error frame, consumer break, caller abort — produces
+      // exactly one record carrying the last usage frame that held a
+      // numeric count. On paths that emit a terminal event it fires
+      // strictly after that event was yielded.
+      let observationFired = false;
+      const fireStreamObservation = (): void => {
+        if (observationFired) return;
+        observationFired = true;
+        fireObservation({
+          provider: opts.name,
+          model: lastModel,
+          kind: 'chat',
+          latency_ms: Date.now() - startedAt,
+          observation: toObservation(lastUsage, lastId || undefined),
+        });
+      };
       if (!res.body) {
-        yield { type: 'done', finish_reason: 'stop' };
+        try {
+          throwIfCallerAborted();
+          yield { type: 'done', finish_reason: 'stop', completion: 'eof' };
+          throwIfCallerAborted();
+        } finally {
+          fireStreamObservation();
+          teardown.abort();
+        }
         return;
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      const startedAt = Date.now();
       let buffer = '';
-      let lastFinish: UnifiedStreamEvent = { type: 'done', finish_reason: 'stop' };
-      let lastModel = request.model;
-      while (true) {
-        if (signal?.aborted) break;
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        // OpenAI SSE frames are separated by blank lines; each frame
-        // is a `data: {...}` line (plus `event:` in some dialects).
-        let nl: number;
-        while ((nl = buffer.indexOf('\n\n')) !== -1) {
-          const frame = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 2);
-          if (!frame.startsWith('data:')) continue;
-          const payload = frame.slice(5).trim();
-          if (payload === '[DONE]') {
-            yield lastFinish;
-            return;
-          }
-          try {
-            const chunk = JSON.parse(payload) as {
-              id?: string;
-              object?: string;
-              model?: string;
-              created?: number;
-              choices?: Array<{
-                index?: number;
-                delta?: {
-                  role?: 'assistant' | 'tool';
-                  content?: string | null;
-                  tool_calls?: Array<{
-                    index: number;
-                    id?: string;
-                    type?: 'function';
-                    function?: { name?: string; arguments?: string };
-                  }>;
-                };
-                finish_reason?: string | null;
-              }>;
-              usage?: {
-                prompt_tokens?: number;
-                completion_tokens?: number;
-                total_tokens?: number;
+      type FrameOutcome = {
+        events: UnifiedStreamEvent[];
+        terminal?: 'done' | 'error';
+      };
+      const handlePayload = (payload: string): FrameOutcome => {
+        if (payload === '[DONE]') return { events: [], terminal: 'done' };
+        try {
+          const chunk = JSON.parse(payload) as {
+            id?: string;
+            object?: string;
+            model?: string;
+            created?: number;
+            choices?: Array<{
+              index?: number;
+              delta?: {
+                role?: 'assistant' | 'tool';
+                content?: string | null;
+                tool_calls?: Array<{
+                  index: number;
+                  id?: string;
+                  type?: 'function';
+                  function?: { name?: string; arguments?: string };
+                }>;
               };
-            };
-            if (chunk.model) lastModel = chunk.model;
-            // Usage frame — OpenAI emits this as the penultimate
-            // chunk when the client passes `stream_options:
-            // { include_usage: true }`. Fire onUsage + fall through
-            // (there may be a trailing [DONE] after).
-            if (chunk.usage) {
-              fireUsage({
-                provider: opts.name,
-                model: lastModel,
-                kind: 'chat',
-                prompt_tokens: chunk.usage.prompt_tokens ?? 0,
-                completion_tokens: chunk.usage.completion_tokens ?? 0,
-                total_tokens: chunk.usage.total_tokens ?? 0,
-                latency_ms: Date.now() - startedAt,
-              });
-            }
-            if (!chunk.choices) continue;
+              finish_reason?: string | null;
+            }>;
+            usage?: WireUsage;
+            error?: unknown;
+          };
+          if (chunk.model) lastModel = chunk.model;
+          if (chunk.id) lastId = chunk.id;
+          const events: UnifiedStreamEvent[] = [];
+          // Usage frame — OpenAI emits this as the penultimate chunk
+          // when the client passes `stream_options: { include_usage:
+          // true }`. Captured before the error check so a frame
+          // carrying both still feeds the observation. Legacy onUsage
+          // fires per frame; the observation keeps only the last
+          // (cumulative) frame with at least one numeric count for
+          // the single record fired at cleanup.
+          if (chunk.usage) {
+            if (hasNumericUsageCount(chunk.usage)) lastUsage = chunk.usage;
+            fireUsage({
+              provider: opts.name,
+              model: lastModel,
+              kind: 'chat',
+              prompt_tokens: chunk.usage.prompt_tokens ?? 0,
+              completion_tokens: chunk.usage.completion_tokens ?? 0,
+              total_tokens: chunk.usage.total_tokens ?? 0,
+              latency_ms: Date.now() - startedAt,
+            });
+          }
+          if (chunk.choices && chunk.choices.length > 0) {
             const finish = chunk.choices[0]?.finish_reason;
             if (finish) {
+              sawFinish = true;
               lastFinish = {
                 type: 'done',
-                finish_reason: finish as UnifiedStreamEvent extends { type: 'done'; finish_reason: infer F } ? F : never,
+                finish_reason: finish as DoneEvent['finish_reason'],
               };
             }
-            yield {
+            events.push({
               type: 'chunk',
               chunk: {
                 id: chunk.id ?? '',
@@ -261,28 +516,122 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
                     ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
                   },
                   ...(c.finish_reason !== undefined
-                    ? { finish_reason: c.finish_reason as UnifiedStreamEvent extends { type: 'done'; finish_reason: infer F } ? F : never }
+                    ? { finish_reason: c.finish_reason as DoneEvent['finish_reason'] }
                     : {}),
                 })),
               },
-            };
-          } catch {
-            // Ignore non-JSON data lines; some providers emit keep-alives.
+            });
+          }
+          // An upstream error delivered as a data frame is terminal —
+          // it is yielded after any content delta the same frame
+          // carried, then the stream ends with no done event,
+          // mirroring the !res.ok path.
+          if (isWireError(chunk.error)) {
+            events.push({ type: 'error', error: wireErrorToEvent(chunk.error) });
+            return { events, terminal: 'error' };
+          }
+          return { events };
+        } catch {
+          // Ignore non-JSON data lines; some providers emit keep-alives.
+          return { events: [] };
+        }
+      };
+      const handleFrame = (frame: string): FrameOutcome => {
+        const f = frame.trim();
+        if (!f.startsWith('data:')) return { events: [] };
+        return handlePayload(f.slice(5).trim());
+      };
+      try {
+        let eof = false;
+        while (!eof) {
+          throwIfCallerAborted();
+          let read: Awaited<ReturnType<typeof reader.read>>;
+          try {
+            read = await reader.read();
+          } catch (err) {
+            // An abort delivered mid-read rejects the reader — surface
+            // the caller's reason rather than the transport's.
+            if (signal?.aborted) throw signal.reason ?? err;
+            throw err;
+          }
+          eof = read.done;
+          // On EOF the decoder is final-flushed (no `stream` flag) so
+          // a split multi-byte sequence isn't dropped; the residual
+          // buffer is then processed line-wise below.
+          buffer += read.done
+            ? decoder.decode()
+            : decoder.decode(read.value, { stream: true });
+          // OpenAI SSE frames are separated by blank lines; each frame
+          // is a `data: {...}` line (plus `event:` in some dialects).
+          let nl: number;
+          while ((nl = buffer.indexOf('\n\n')) !== -1) {
+            const frame = buffer.slice(0, nl);
+            buffer = buffer.slice(nl + 2);
+            const outcome = handleFrame(frame);
+            throwIfCallerAborted();
+            for (const ev of outcome.events) {
+              yield ev;
+              throwIfCallerAborted();
+            }
+            if (outcome.terminal === 'done') {
+              yield { ...lastFinish, completion: 'upstream' };
+              throwIfCallerAborted();
+              return;
+            }
+            if (outcome.terminal === 'error') return;
+          }
+          if (eof && buffer.trim().length > 0) {
+            // The transport closed without a final blank line — any
+            // complete `data:` line still buffered is a real frame
+            // (e.g. a trailing `data: [DONE]`).
+            const residual = buffer;
+            buffer = '';
+            for (const line of residual.split('\n')) {
+              const outcome = handleFrame(line);
+              throwIfCallerAborted();
+              for (const ev of outcome.events) {
+                yield ev;
+                throwIfCallerAborted();
+              }
+              if (outcome.terminal === 'done') {
+                yield { ...lastFinish, completion: 'upstream' };
+                throwIfCallerAborted();
+                return;
+              }
+              if (outcome.terminal === 'error') return;
+            }
           }
         }
+        throwIfCallerAborted();
+        yield {
+          ...lastFinish,
+          completion: sawFinish ? 'upstream' : 'eof',
+        };
+        throwIfCallerAborted();
+      } finally {
+        fireStreamObservation();
+        try {
+          await reader.cancel();
+          reader.releaseLock();
+        } catch {
+          // best-effort teardown
+        }
+        teardown.abort();
       }
-      yield lastFinish;
     },
 
     async createEmbeddings(
       request: UnifiedEmbeddingRequest,
+      context?: ProviderExecutionContext,
     ): Promise<UnifiedEmbeddingResponse> {
       const startedAt = Date.now();
       const { providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}) };
+      const signal = contextSignal(context);
       const res = await call('/embeddings', {
         method: 'POST',
         body: JSON.stringify(body),
+        ...(signal ? { signal } : {}),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -303,6 +652,14 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
           latency_ms: latencyMs,
         });
       }
+      fireObservation({
+        provider: opts.name,
+        model: raw.model ?? request.model,
+        kind: 'embedding',
+        latency_ms: latencyMs,
+        observation: toObservation(raw.usage, undefined),
+        ...contextIdentity(context),
+      });
       return {
         ...raw,
         latencyMs,

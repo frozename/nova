@@ -14,6 +14,29 @@ import type {
 } from './schemas/retrieval.js';
 
 /**
+ * Per-call execution controls for the non-streaming provider ops
+ * (`createResponse`, `createEmbeddings`). Passed as an optional
+ * trailing parameter so existing adapters and call sites keep
+ * compiling unchanged. Streaming keeps its own `AbortSignal`
+ * parameter on `streamResponse`.
+ */
+export interface ProviderExecutionContext {
+  /** Cancels the in-flight upstream request. */
+  signal?: AbortSignal;
+  /**
+   * Absolute deadline as epoch milliseconds on the `Date.now()`
+   * clock. Once it passes, the provider aborts the in-flight
+   * upstream request — same observable effect as `signal` firing.
+   * An already-past deadline aborts before the request leaves.
+   */
+  deadline?: number;
+  /** Opaque correlation id for cross-referencing traces/telemetry. */
+  requestId?: string;
+  /** Identifies one attempt within a retried logical request. */
+  attemptId?: string;
+}
+
+/**
  * Canonical AI-provider adapter. Every backend — local llama.cpp
  * agent, OpenAI, Anthropic, Together, groq, a peer llamactl via its
  * `/v1` gateway, a sirius gateway instance — implements this. Routing
@@ -40,7 +63,10 @@ export interface AiProvider {
   /** Human display name (e.g. `"OpenAI"`, `"Local llama.cpp"`). */
   readonly displayName?: string;
 
-  createResponse(request: UnifiedAiRequest): Promise<UnifiedAiResponse>;
+  createResponse(
+    request: UnifiedAiRequest,
+    context?: ProviderExecutionContext,
+  ): Promise<UnifiedAiResponse>;
 
   streamResponse?(
     request: UnifiedAiRequest,
@@ -49,6 +75,7 @@ export interface AiProvider {
 
   createEmbeddings?(
     request: UnifiedEmbeddingRequest,
+    context?: ProviderExecutionContext,
   ): Promise<UnifiedEmbeddingResponse>;
 
   listModels?(): Promise<ModelInfo[]>;

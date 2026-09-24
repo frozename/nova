@@ -1,6 +1,6 @@
 {
   "name": "@nova/contracts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Canonical AI-provider contracts (chat, embeddings, models, health) shared by llamactl, sirius-gateway, and embersynth.",
   "type": "module",
   "main": "./src/index.ts",

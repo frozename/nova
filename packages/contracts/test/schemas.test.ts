@@ -131,6 +131,36 @@ describe('nova stream schema', () => {
     });
     expect(done.type).toBe('done');
   });
+
+  test('done event accepts additive terminal-evidence marker', () => {
+    for (const completion of ['upstream', 'eof', 'error']) {
+      const done = UnifiedStreamEventSchema.parse({
+        type: 'done',
+        finish_reason: 'stop',
+        completion,
+      }) as { type: string; completion?: string };
+      expect(done.type).toBe('done');
+      expect(done.completion).toBe(completion);
+    }
+  });
+
+  test('done event without the marker still parses (backward compat)', () => {
+    const done = UnifiedStreamEventSchema.parse({
+      type: 'done',
+      finish_reason: null,
+    }) as { completion?: string };
+    expect(done.completion).toBeUndefined();
+  });
+
+  test('done event rejects an unknown completion value', () => {
+    expect(() =>
+      UnifiedStreamEventSchema.parse({
+        type: 'done',
+        finish_reason: 'stop',
+        completion: 'timeout',
+      }),
+    ).toThrow();
+  });
 });
 
 describe('nova embeddings schema', () => {

@@ -44,6 +44,24 @@ export const UnifiedStreamChunkSchema = z.object({
 export type UnifiedStreamChunk = z.infer<typeof UnifiedStreamChunkSchema>;
 
 /**
+ * Terminal-evidence marker carried on `done` events — how the stream
+ * actually ended, so consumers can tell a real upstream completion
+ * from a truncated transport.
+ *  - 'upstream': the provider sent a real completion signal
+ *    (a `[DONE]` frame or a `finish_reason`).
+ *  - 'eof': the transport ended without any completion signal —
+ *    truncated stream, dropped connection.
+ *  - 'error': a done synthesized after an `error` event (e.g. a
+ *    router closing out a failed stream). Reserved for wrapping
+ *    layers — the OpenAI-compat adapter never emits it; it
+ *    terminates the stream after the error event instead.
+ * Optional — older adapters omit it; consumers treat absent as
+ * "provenance unknown" rather than assuming completion.
+ */
+export const StreamCompletionSchema = z.enum(['upstream', 'eof', 'error']);
+export type StreamCompletion = z.infer<typeof StreamCompletionSchema>;
+
+/**
  * High-level event taxonomy used by orchestrators that want more
  * structure than raw chunks (embersynth multi-stage synthesis, UI
  * chat panels that need distinct tool-call / error states). Adapters
@@ -68,6 +86,7 @@ export const UnifiedStreamEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('done'),
     finish_reason: FinishReasonSchema.nullable(),
+    completion: StreamCompletionSchema.optional(),
   }),
 ]);
 export type UnifiedStreamEvent = z.infer<typeof UnifiedStreamEventSchema>;
