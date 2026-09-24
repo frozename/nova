@@ -1,4 +1,4 @@
-import type { AiProvider } from '../provider.js';
+import type { AiProvider, ProviderExecutionContext } from '../provider.js';
 import type { ModelInfo } from '../schemas/models.js';
 import type { ProviderHealth } from '../schemas/health.js';
 import type { UnifiedAiRequest, UnifiedAiResponse } from '../schemas/chat.js';
@@ -7,7 +7,7 @@ import type {
   UnifiedEmbeddingResponse,
 } from '../schemas/embeddings.js';
 import type { UnifiedStreamEvent } from '../schemas/stream.js';
-import type { UsageKind } from '../schemas/usage.js';
+import type { UsageKind, UsageObservationV1 } from '../schemas/usage.js';
 
 /**
  * Callback fired after a successful chat or embedding round-trip
@@ -30,6 +30,28 @@ export interface OpenAICompatUsageSnapshot {
 }
 
 export type OpenAICompatOnUsage = (snapshot: OpenAICompatUsageSnapshot) => void;
+
+/**
+ * Provenance-honest counterpart to `OpenAICompatUsageSnapshot`.
+ * `observation` carries only the counts the upstream actually
+ * reported (`source: 'observed'`, missing components absent), or
+ * `source: 'unknown'` when the upstream returned no usage block —
+ * never a zero-filled stand-in. Consumers building `UsageRecordV2`
+ * rows can copy `observation` verbatim.
+ */
+export interface OpenAICompatUsageObservation {
+  provider: string;
+  model: string;
+  kind: UsageKind;
+  latency_ms: number;
+  observation: UsageObservationV1;
+  request_id?: string;
+  attempt_id?: string;
+}
+
+export type OpenAICompatOnUsageObservation = (
+  snapshot: OpenAICompatUsageObservation,
+) => void;
 
 /**
  * OpenAI-compatible provider adapter. Covers every upstream that
@@ -77,10 +99,67 @@ export interface OpenAICompatOptions {
    * OpenAI-style backends). Absent usage → callback not fired.
    */
   onUsage?: OpenAICompatOnUsage;
+  /**
+   * Fires after every successful chat / embedding round-trip and at
+   * natural stream end — including when the upstream sent no usage
+   * data (`observation.source === 'unknown'`). Unlike `onUsage`,
+   * missing component counts stay absent rather than zero-filled.
+   * Exceptions are swallowed like `onUsage`.
+   */
+  onUsageObservation?: OpenAICompatOnUsageObservation;
 }
 
 function trimTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+/**
+ * Merge the caller's signal with a deadline-derived timeout. An
+ * already-past deadline yields a pre-aborted signal so fetch rejects
+ * before the request leaves.
+ */
+function contextSignal(context?: ProviderExecutionContext): AbortSignal | undefined {
+  if (!context) return undefined;
+  const signals: AbortSignal[] = [];
+  if (context.signal) signals.push(context.signal);
+  if (context.deadline !== undefined) {
+    const ms = context.deadline - Date.now();
+    signals.push(ms <= 0 ? AbortSignal.abort() : AbortSignal.timeout(ms));
+  }
+  if (signals.length === 0) return undefined;
+  return signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+}
+
+type WireUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+/**
+ * Translate a raw wire `usage` block into a provenance-tagged
+ * observation. Only fields the upstream actually sent are carried;
+ * absent usage (or absent components) never become 0.
+ */
+function toObservation(
+  usage: WireUsage | undefined,
+  upstreamRequestId?: string,
+): UsageObservationV1 {
+  const id = upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {};
+  if (!usage) return { source: 'unknown', ...id };
+  return {
+    source: 'observed',
+    ...(typeof usage.prompt_tokens === 'number'
+      ? { input_tokens: usage.prompt_tokens }
+      : {}),
+    ...(typeof usage.completion_tokens === 'number'
+      ? { output_tokens: usage.completion_tokens }
+      : {}),
+    ...(typeof usage.total_tokens === 'number'
+      ? { total_tokens: usage.total_tokens }
+      : {}),
+    ...id,
+  };
 }
 
 export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvider {
@@ -109,18 +188,42 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
     }
   }
 
+  function fireObservation(snapshot: OpenAICompatUsageObservation): void {
+    if (!opts.onUsageObservation) return;
+    try {
+      opts.onUsageObservation(snapshot);
+    } catch {
+      // Same fire-and-forget contract as fireUsage.
+    }
+  }
+
+  function contextIdentity(context?: ProviderExecutionContext): {
+    request_id?: string;
+    attempt_id?: string;
+  } {
+    return {
+      ...(context?.requestId ? { request_id: context.requestId } : {}),
+      ...(context?.attemptId ? { attempt_id: context.attemptId } : {}),
+    };
+  }
+
   return {
     name: opts.name,
     displayName: opts.displayName ?? opts.name,
 
-    async createResponse(request: UnifiedAiRequest): Promise<UnifiedAiResponse> {
+    async createResponse(
+      request: UnifiedAiRequest,
+      context?: ProviderExecutionContext,
+    ): Promise<UnifiedAiResponse> {
       const startedAt = Date.now();
       // Strip nova-only fields before sending upstream.
       const { capabilities: _c, providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}) };
+      const signal = contextSignal(context);
       const res = await call('/chat/completions', {
         method: 'POST',
         body: JSON.stringify({ ...body, stream: false }),
+        ...(signal ? { signal } : {}),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -139,6 +242,14 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
           latency_ms: latencyMs,
         });
       }
+      fireObservation({
+        provider: opts.name,
+        model: raw.model ?? request.model,
+        kind: 'chat',
+        latency_ms: latencyMs,
+        observation: toObservation(raw.usage, raw.id || undefined),
+        ...contextIdentity(context),
+      });
       return {
         ...raw,
         latencyMs,
@@ -152,10 +263,18 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
     ): AsyncIterable<UnifiedStreamEvent> {
       const { capabilities: _c, providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}), stream: true };
+      // Internal controller so a consumer `break`/`return` tears the
+      // upstream request down — cancelling the body reader alone
+      // doesn't propagate to the server.
+      const teardown = new AbortController();
+      const fetchSignal = signal
+        ? AbortSignal.any([signal, teardown.signal])
+        : teardown.signal;
+      const startedAt = Date.now();
       const res = await call('/chat/completions', {
         method: 'POST',
         body: JSON.stringify(body),
-        ...(signal ? { signal } : {}),
+        signal: fetchSignal,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -167,122 +286,178 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
             retryable: res.status >= 500 || res.status === 429,
           },
         };
+        teardown.abort();
         return;
       }
       if (!res.body) {
-        yield { type: 'done', finish_reason: 'stop' };
+        fireObservation({
+          provider: opts.name,
+          model: request.model,
+          kind: 'chat',
+          latency_ms: Date.now() - startedAt,
+          observation: { source: 'unknown' },
+        });
+        yield { type: 'done', finish_reason: 'stop', completion: 'eof' };
+        teardown.abort();
         return;
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      const startedAt = Date.now();
       let buffer = '';
-      let lastFinish: UnifiedStreamEvent = { type: 'done', finish_reason: 'stop' };
+      type DoneEvent = Extract<UnifiedStreamEvent, { type: 'done' }>;
+      let lastFinish: DoneEvent = { type: 'done', finish_reason: 'stop' };
+      let sawFinish = false;
+      let usageSeen = false;
       let lastModel = request.model;
-      while (true) {
-        if (signal?.aborted) break;
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        // OpenAI SSE frames are separated by blank lines; each frame
-        // is a `data: {...}` line (plus `event:` in some dialects).
-        let nl: number;
-        while ((nl = buffer.indexOf('\n\n')) !== -1) {
-          const frame = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 2);
-          if (!frame.startsWith('data:')) continue;
-          const payload = frame.slice(5).trim();
-          if (payload === '[DONE]') {
-            yield lastFinish;
-            return;
-          }
-          try {
-            const chunk = JSON.parse(payload) as {
-              id?: string;
-              object?: string;
-              model?: string;
-              created?: number;
-              choices?: Array<{
-                index?: number;
-                delta?: {
-                  role?: 'assistant' | 'tool';
-                  content?: string | null;
-                  tool_calls?: Array<{
-                    index: number;
-                    id?: string;
-                    type?: 'function';
-                    function?: { name?: string; arguments?: string };
-                  }>;
+      let lastId = '';
+      try {
+        while (true) {
+          if (fetchSignal.aborted) break;
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          // OpenAI SSE frames are separated by blank lines; each frame
+          // is a `data: {...}` line (plus `event:` in some dialects).
+          let nl: number;
+          while ((nl = buffer.indexOf('\n\n')) !== -1) {
+            const frame = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 2);
+            if (!frame.startsWith('data:')) continue;
+            const payload = frame.slice(5).trim();
+            if (payload === '[DONE]') {
+              if (!usageSeen) {
+                fireObservation({
+                  provider: opts.name,
+                  model: lastModel,
+                  kind: 'chat',
+                  latency_ms: Date.now() - startedAt,
+                  observation: toObservation(undefined, lastId || undefined),
+                });
+              }
+              yield { ...lastFinish, completion: 'upstream' };
+              return;
+            }
+            try {
+              const chunk = JSON.parse(payload) as {
+                id?: string;
+                object?: string;
+                model?: string;
+                created?: number;
+                choices?: Array<{
+                  index?: number;
+                  delta?: {
+                    role?: 'assistant' | 'tool';
+                    content?: string | null;
+                    tool_calls?: Array<{
+                      index: number;
+                      id?: string;
+                      type?: 'function';
+                      function?: { name?: string; arguments?: string };
+                    }>;
+                  };
+                  finish_reason?: string | null;
+                }>;
+                usage?: {
+                  prompt_tokens?: number;
+                  completion_tokens?: number;
+                  total_tokens?: number;
                 };
-                finish_reason?: string | null;
-              }>;
-              usage?: {
-                prompt_tokens?: number;
-                completion_tokens?: number;
-                total_tokens?: number;
               };
-            };
-            if (chunk.model) lastModel = chunk.model;
-            // Usage frame — OpenAI emits this as the penultimate
-            // chunk when the client passes `stream_options:
-            // { include_usage: true }`. Fire onUsage + fall through
-            // (there may be a trailing [DONE] after).
-            if (chunk.usage) {
-              fireUsage({
-                provider: opts.name,
-                model: lastModel,
-                kind: 'chat',
-                prompt_tokens: chunk.usage.prompt_tokens ?? 0,
-                completion_tokens: chunk.usage.completion_tokens ?? 0,
-                total_tokens: chunk.usage.total_tokens ?? 0,
-                latency_ms: Date.now() - startedAt,
-              });
-            }
-            if (!chunk.choices) continue;
-            const finish = chunk.choices[0]?.finish_reason;
-            if (finish) {
-              lastFinish = {
-                type: 'done',
-                finish_reason: finish as UnifiedStreamEvent extends { type: 'done'; finish_reason: infer F } ? F : never,
+              if (chunk.model) lastModel = chunk.model;
+              if (chunk.id) lastId = chunk.id;
+              // Usage frame — OpenAI emits this as the penultimate
+              // chunk when the client passes `stream_options:
+              // { include_usage: true }`. Fire onUsage + fall through
+              // (there may be a trailing [DONE] after).
+              if (chunk.usage) {
+                usageSeen = true;
+                fireUsage({
+                  provider: opts.name,
+                  model: lastModel,
+                  kind: 'chat',
+                  prompt_tokens: chunk.usage.prompt_tokens ?? 0,
+                  completion_tokens: chunk.usage.completion_tokens ?? 0,
+                  total_tokens: chunk.usage.total_tokens ?? 0,
+                  latency_ms: Date.now() - startedAt,
+                });
+                fireObservation({
+                  provider: opts.name,
+                  model: lastModel,
+                  kind: 'chat',
+                  latency_ms: Date.now() - startedAt,
+                  observation: toObservation(chunk.usage, chunk.id ?? (lastId || undefined)),
+                });
+              }
+              if (!chunk.choices || chunk.choices.length === 0) continue;
+              const finish = chunk.choices[0]?.finish_reason;
+              if (finish) {
+                sawFinish = true;
+                lastFinish = {
+                  type: 'done',
+                  finish_reason: finish as DoneEvent['finish_reason'],
+                };
+              }
+              yield {
+                type: 'chunk',
+                chunk: {
+                  id: chunk.id ?? '',
+                  object: 'chat.completion.chunk',
+                  model: chunk.model ?? request.model,
+                  created: chunk.created ?? Math.floor(Date.now() / 1000),
+                  choices: chunk.choices.map((c) => ({
+                    index: c.index ?? 0,
+                    delta: {
+                      ...(c.delta?.role ? { role: c.delta.role } : {}),
+                      ...(c.delta?.content !== undefined ? { content: c.delta.content } : {}),
+                      ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
+                    },
+                    ...(c.finish_reason !== undefined
+                      ? { finish_reason: c.finish_reason as DoneEvent['finish_reason'] }
+                      : {}),
+                  })),
+                },
               };
+            } catch {
+              // Ignore non-JSON data lines; some providers emit keep-alives.
             }
-            yield {
-              type: 'chunk',
-              chunk: {
-                id: chunk.id ?? '',
-                object: 'chat.completion.chunk',
-                model: chunk.model ?? request.model,
-                created: chunk.created ?? Math.floor(Date.now() / 1000),
-                choices: chunk.choices.map((c) => ({
-                  index: c.index ?? 0,
-                  delta: {
-                    ...(c.delta?.role ? { role: c.delta.role } : {}),
-                    ...(c.delta?.content !== undefined ? { content: c.delta.content } : {}),
-                    ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
-                  },
-                  ...(c.finish_reason !== undefined
-                    ? { finish_reason: c.finish_reason as UnifiedStreamEvent extends { type: 'done'; finish_reason: infer F } ? F : never }
-                    : {}),
-                })),
-              },
-            };
-          } catch {
-            // Ignore non-JSON data lines; some providers emit keep-alives.
           }
         }
+      } finally {
+        try {
+          await reader.cancel();
+          reader.releaseLock();
+        } catch {
+          // best-effort teardown
+        }
+        teardown.abort();
       }
-      yield lastFinish;
+      if (!usageSeen) {
+        fireObservation({
+          provider: opts.name,
+          model: lastModel,
+          kind: 'chat',
+          latency_ms: Date.now() - startedAt,
+          observation: toObservation(undefined, lastId || undefined),
+        });
+      }
+      yield {
+        ...lastFinish,
+        completion: sawFinish ? 'upstream' : 'eof',
+      };
     },
 
     async createEmbeddings(
       request: UnifiedEmbeddingRequest,
+      context?: ProviderExecutionContext,
     ): Promise<UnifiedEmbeddingResponse> {
       const startedAt = Date.now();
       const { providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}) };
+      const signal = contextSignal(context);
       const res = await call('/embeddings', {
         method: 'POST',
         body: JSON.stringify(body),
+        ...(signal ? { signal } : {}),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -303,6 +478,14 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
           latency_ms: latencyMs,
         });
       }
+      fireObservation({
+        provider: opts.name,
+        model: raw.model ?? request.model,
+        kind: 'embedding',
+        latency_ms: latencyMs,
+        observation: toObservation(raw.usage, undefined),
+        ...contextIdentity(context),
+      });
       return {
         ...raw,
         latencyMs,

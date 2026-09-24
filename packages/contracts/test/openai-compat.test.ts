@@ -1,5 +1,33 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createOpenAICompatProvider } from '../src/providers/openai-compat.js';
+import type { UnifiedStreamEvent } from '../src/index.js';
+
+type Observation = {
+  provider?: string;
+  model?: string;
+  kind?: string;
+  latency_ms?: number;
+  request_id?: string;
+  attempt_id?: string;
+  observation?: Record<string, unknown>;
+};
+
+function collectObservations(): {
+  observations: Observation[];
+  onUsageObservation: (o: unknown) => void;
+} {
+  const observations: Observation[] = [];
+  return {
+    observations,
+    onUsageObservation: (o) => {
+      observations.push(JSON.parse(JSON.stringify(o)) as Observation);
+    },
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 /**
  * E2E test for the OpenAI-compatible adapter. Stands up a stub
@@ -404,5 +432,592 @@ describe('openai-compat provider — onUsage callback', () => {
       void _ev;
     }
     expect(snapshots).toHaveLength(0);
+  });
+});
+
+describe('openai-compat — onUsageObservation callback', () => {
+  test('nonstream: observed usage maps to input/output/total + upstream_request_id', async () => {
+    const { observations, onUsageObservation } = collectObservations();
+    const p = createOpenAICompatProvider({
+      name: 'stub',
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      apiKey: 'sk-test',
+      onUsageObservation,
+    });
+    await p.createResponse({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(observations).toHaveLength(1);
+    const o = observations[0]!;
+    expect(o.provider).toBe('stub');
+    expect(o.model).toBe('gpt-4o-mini');
+    expect(o.kind).toBe('chat');
+    expect(typeof o.latency_ms).toBe('number');
+    const obs = o.observation!;
+    expect(obs.source).toBe('observed');
+    expect(obs.input_tokens).toBe(2);
+    expect(obs.output_tokens).toBe(1);
+    expect(obs.total_tokens).toBe(3);
+    expect(obs.upstream_request_id).toBe('chatcmpl-stub');
+  });
+
+  test('nonstream: missing usage → source unknown with no counts', async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      async fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === '/v1/chat/completions') {
+          return Response.json({
+            id: 'chatcmpl-nousage',
+            object: 'chat.completion',
+            model: 'm',
+            created: 1,
+            choices: [
+              {
+                index: 0,
+                message: { role: 'assistant', content: 'ok' },
+                finish_reason: 'stop',
+              },
+            ],
+          });
+        }
+        return new Response('', { status: 404 });
+      },
+    });
+    try {
+      const { observations, onUsageObservation } = collectObservations();
+      const p = createOpenAICompatProvider({
+        name: 'no-usage',
+        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        apiKey: 'sk',
+        onUsageObservation,
+      });
+      await p.createResponse({
+        model: 'm',
+        messages: [{ role: 'user', content: 'x' }],
+      });
+      expect(observations).toHaveLength(1);
+      const obs = observations[0]!.observation!;
+      expect(obs.source).toBe('unknown');
+      expect(obs.input_tokens).toBeUndefined();
+      expect(obs.output_tokens).toBeUndefined();
+      expect(obs.total_tokens).toBeUndefined();
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('nonstream: execution context requestId/attemptId propagate to the observation', async () => {
+    const { observations, onUsageObservation } = collectObservations();
+    const p = createOpenAICompatProvider({
+      name: 'stub',
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      apiKey: 'sk-test',
+      onUsageObservation,
+    });
+    await p.createResponse(
+      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }] },
+      { requestId: 'req_42', attemptId: 'attempt_3' },
+    );
+    expect(observations).toHaveLength(1);
+    expect(observations[0]!.request_id).toBe('req_42');
+    expect(observations[0]!.attempt_id).toBe('attempt_3');
+  });
+
+  test('stream: usage-only empty-choices frame fires an observed observation', async () => {
+    const { observations, onUsageObservation } = collectObservations();
+    const snapshots: Array<Record<string, unknown>> = [];
+    const p = createOpenAICompatProvider({
+      name: 'stub',
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      apiKey: 'sk-test',
+      onUsage: (s) => { snapshots.push({ ...s }); },
+      onUsageObservation,
+    });
+    const request = {
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user' as const, content: 'hi' }],
+      providerOptions: { stream_options: { include_usage: true } },
+    };
+    for await (const _ev of p.streamResponse?.(request) ?? []) {
+      void _ev;
+    }
+    // Upstream emitted a `choices: []` + `usage` frame (see fixture).
+    expect(observations).toHaveLength(1);
+    const obs = observations[0]!.observation!;
+    expect(obs.source).toBe('observed');
+    expect(obs.input_tokens).toBe(4);
+    expect(obs.output_tokens).toBe(2);
+    expect(obs.total_tokens).toBe(6);
+    // Legacy onUsage path unchanged.
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]!.total_tokens).toBe(6);
+  });
+
+  test('stream: partial usage frame reports only present counts — no fabricated zeros', async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      async fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname !== '/v1/chat/completions') {
+          return new Response('', { status: 404 });
+        }
+        const body = (await req.json()) as { model: string };
+        const enc = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              enc.encode(
+                `data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"${body.model}","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}\n\n`,
+              ),
+            );
+            // Usage frame with ONLY prompt_tokens — completion/total absent.
+            controller.enqueue(
+              enc.encode(
+                `data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"${body.model}","choices":[],"usage":{"prompt_tokens":5}}\n\n`,
+              ),
+            );
+            controller.enqueue(enc.encode('data: [DONE]\n\n'));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      },
+    });
+    try {
+      const { observations, onUsageObservation } = collectObservations();
+      const snapshots: Array<Record<string, unknown>> = [];
+      const p = createOpenAICompatProvider({
+        name: 'partial',
+        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        apiKey: 'sk',
+        onUsage: (s) => { snapshots.push({ ...s }); },
+        onUsageObservation,
+      });
+      for await (const _ev of p.streamResponse?.({
+        model: 'm',
+        messages: [{ role: 'user', content: 'x' }],
+      }) ?? []) {
+        void _ev;
+      }
+      expect(observations).toHaveLength(1);
+      const obs = observations[0]!.observation!;
+      expect(obs.source).toBe('observed');
+      expect(obs.input_tokens).toBe(5);
+      expect(obs.output_tokens).toBeUndefined();
+      expect(obs.total_tokens).toBeUndefined();
+      // Legacy onUsage keeps its zero-fill contract.
+      expect(snapshots).toHaveLength(1);
+      expect(snapshots[0]!.prompt_tokens).toBe(5);
+      expect(snapshots[0]!.completion_tokens).toBe(0);
+      expect(snapshots[0]!.total_tokens).toBe(0);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('stream: no usage frame → unknown observation fires at stream end', async () => {
+    const { observations, onUsageObservation } = collectObservations();
+    const p = createOpenAICompatProvider({
+      name: 'stub',
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      apiKey: 'sk-test',
+      onUsageObservation,
+    });
+    for await (const _ev of p.streamResponse?.({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hi' }],
+    }) ?? []) {
+      void _ev;
+    }
+    expect(observations).toHaveLength(1);
+    const obs = observations[0]!.observation!;
+    expect(obs.source).toBe('unknown');
+    expect(obs.input_tokens).toBeUndefined();
+  });
+
+  test('embeddings: reports only the counts the upstream sent', async () => {
+    const { observations, onUsageObservation } = collectObservations();
+    const p = createOpenAICompatProvider({
+      name: 'stub',
+      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      apiKey: 'sk-test',
+      onUsageObservation,
+    });
+    await p.createEmbeddings?.({
+      model: 'text-embedding-3-small',
+      input: 'abc',
+    });
+    expect(observations).toHaveLength(1);
+    const o = observations[0]!;
+    expect(o.kind).toBe('embedding');
+    const obs = o.observation!;
+    expect(obs.source).toBe('observed');
+    expect(obs.input_tokens).toBe(3);
+    expect(obs.total_tokens).toBe(3);
+    // Upstream sent no completion count — must stay absent, not 0.
+    expect(obs.output_tokens).toBeUndefined();
+  });
+});
+
+describe('openai-compat — ProviderExecutionContext (nonstream cancellation)', () => {
+  test('createResponse aborts the in-flight request when signal fires', async () => {
+    let serverAborted = false;
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        req.signal.addEventListener('abort', () => {
+          serverAborted = true;
+        });
+        return new Promise<Response>(() => {});
+      },
+    });
+    try {
+      const p = createOpenAICompatProvider({
+        name: 'hang',
+        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        apiKey: 'sk',
+      });
+      const ac = new AbortController();
+      const outcomeP = p
+        .createResponse(
+          { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+          { signal: ac.signal },
+        )
+        .then(
+          () => 'resolved' as const,
+          (e) => `rejected:${(e as Error).name}`,
+        );
+      await sleep(60);
+      ac.abort();
+      const outcome = await Promise.race([
+        outcomeP,
+        sleep(1500).then(() => 'pending' as const),
+      ]);
+      expect(outcome).toBe('rejected:AbortError');
+      await sleep(80);
+      expect(serverAborted).toBe(true);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('createResponse aborts when the deadline passes mid-flight', async () => {
+    let serverAborted = false;
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        req.signal.addEventListener('abort', () => {
+          serverAborted = true;
+        });
+        return new Promise<Response>(() => {});
+      },
+    });
+    try {
+      const p = createOpenAICompatProvider({
+        name: 'hang',
+        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        apiKey: 'sk',
+      });
+      const outcomeP = p
+        .createResponse(
+          { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+          { deadline: Date.now() + 60 },
+        )
+        .then(
+          () => 'resolved' as const,
+          (e) => `rejected:${(e as Error).name}`,
+        );
+      const outcome = await Promise.race([
+        outcomeP,
+        sleep(1500).then(() => 'pending' as const),
+      ]);
+      // AbortSignal.timeout rejects with TimeoutError.
+      expect(outcome === 'rejected:TimeoutError' || outcome === 'rejected:AbortError').toBe(
+        true,
+      );
+      await sleep(80);
+      expect(serverAborted).toBe(true);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('createResponse with an already-expired deadline rejects without waiting', async () => {
+    let sawRequest = false;
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch() {
+        sawRequest = true;
+        return Response.json({ id: 'x' });
+      },
+    });
+    try {
+      const p = createOpenAICompatProvider({
+        name: 'deadline',
+        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        apiKey: 'sk',
+      });
+      const outcome = await p
+        .createResponse(
+          { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+          { deadline: Date.now() - 1000 },
+        )
+        .then(
+          () => 'resolved' as const,
+          (e) => `rejected:${(e as Error).name}`,
+        );
+      expect(outcome === 'rejected:AbortError' || outcome === 'rejected:TimeoutError').toBe(
+        true,
+      );
+      expect(sawRequest).toBe(false);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('createEmbeddings honors the context signal', async () => {
+    let serverAborted = false;
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        req.signal.addEventListener('abort', () => {
+          serverAborted = true;
+        });
+        return new Promise<Response>(() => {});
+      },
+    });
+    try {
+      const p = createOpenAICompatProvider({
+        name: 'hang',
+        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        apiKey: 'sk',
+      });
+      const ac = new AbortController();
+      const outcomeP = p
+        .createEmbeddings?.(
+          { model: 'e', input: 'x' },
+          { signal: ac.signal },
+        )
+        .then(
+          () => 'resolved' as const,
+          (e: unknown) => `rejected:${(e as Error).name}`,
+        );
+      await sleep(60);
+      ac.abort();
+      const outcome = await Promise.race([
+        outcomeP,
+        sleep(1500).then(() => 'pending' as const),
+      ]);
+      expect(outcome).toBe('rejected:AbortError');
+      await sleep(80);
+      expect(serverAborted).toBe(true);
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+describe('openai-compat — stream client-return cleanup', () => {
+  test('breaking out of the async iterator releases the upstream request', async () => {
+    let released = false;
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        req.signal.addEventListener('abort', () => {
+          released = true;
+        });
+        const stream = new ReadableStream({
+          start(controller) {
+            const enc = new TextEncoder();
+            controller.enqueue(
+              enc.encode(
+                'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"}}]}\n\n',
+              ),
+            );
+            // Stream stays open — no [DONE], no more data.
+          },
+          cancel() {
+            released = true;
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      },
+    });
+    try {
+      const p = createOpenAICompatProvider({
+        name: 'stream-hang',
+        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        apiKey: 'sk',
+      });
+      for await (const ev of p.streamResponse?.({
+        model: 'm',
+        messages: [{ role: 'user', content: 'x' }],
+      }) ?? []) {
+        expect(ev.type).toBe('chunk');
+        break;
+      }
+      await sleep(400);
+      expect(released).toBe(true);
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+describe('openai-compat — stream terminal evidence', () => {
+  function sseServer(frames: string[]): {
+    port: number;
+    stop: () => void;
+  } {
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch() {
+        const enc = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            for (const f of frames) controller.enqueue(enc.encode(f));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      },
+    });
+    return { port: server.port!, stop: () => server.stop(true) };
+  }
+
+  async function drain(port: number): Promise<UnifiedStreamEvent[]> {
+    const p = createOpenAICompatProvider({
+      name: 'sse',
+      baseUrl: `http://127.0.0.1:${port}/v1`,
+      apiKey: 'sk',
+    });
+    const events: UnifiedStreamEvent[] = [];
+    for await (const ev of p.streamResponse?.({
+      model: 'm',
+      messages: [{ role: 'user', content: 'x' }],
+    }) ?? []) {
+      events.push(ev);
+    }
+    return events;
+  }
+
+  type DoneEvent = { type: 'done'; finish_reason: unknown; completion?: string };
+
+  test('real [DONE] frame → done marked as upstream-completed', async () => {
+    const { port, stop } = sseServer([
+      'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+    try {
+      const events = await drain(port);
+      const done = events[events.length - 1] as DoneEvent;
+      expect(done.type).toBe('done');
+      expect(done.completion).toBe('upstream');
+    } finally {
+      stop();
+    }
+  });
+
+  test('finish_reason then EOF without [DONE] → still upstream-completed', async () => {
+    const { port, stop } = sseServer([
+      'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]}\n\n',
+      // connection closes — no [DONE]
+    ]);
+    try {
+      const events = await drain(port);
+      const done = events[events.length - 1] as DoneEvent;
+      expect(done.type).toBe('done');
+      expect(done.finish_reason).toBe('stop');
+      expect(done.completion).toBe('upstream');
+    } finally {
+      stop();
+    }
+  });
+
+  test('EOF with no finish signal → done marked eof, not upstream', async () => {
+    const { port, stop } = sseServer([
+      'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"partial"}}]}\n\n',
+      // EOF — stream truncated mid-response
+    ]);
+    try {
+      const events = await drain(port);
+      const done = events[events.length - 1] as DoneEvent;
+      expect(done.type).toBe('done');
+      expect(done.completion).toBe('eof');
+      expect(done.completion).not.toBe('upstream');
+    } finally {
+      stop();
+    }
+  });
+
+  test('malformed frame then EOF → done not marked upstream', async () => {
+    const { port, stop } = sseServer([
+      'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"ok"}}]}\n\n',
+      'data: {not valid json\n\n',
+    ]);
+    try {
+      const events = await drain(port);
+      const done = events[events.length - 1] as DoneEvent;
+      expect(done.type).toBe('done');
+      expect(done.completion).toBe('eof');
+      expect(done.completion).not.toBe('upstream');
+    } finally {
+      stop();
+    }
+  });
+
+  test('HTTP error → error event only; no done claims upstream completion', async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch() {
+        return new Response('upstream exploded', { status: 500 });
+      },
+    });
+    try {
+      const p = createOpenAICompatProvider({
+        name: 'err',
+        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        apiKey: 'sk',
+      });
+      const events: UnifiedStreamEvent[] = [];
+      for await (const ev of p.streamResponse?.({
+        model: 'm',
+        messages: [{ role: 'user', content: 'x' }],
+      }) ?? []) {
+        events.push(ev);
+      }
+      const errorEvents = events.filter((e) => e.type === 'error');
+      const doneEvents = events.filter(
+        (e): e is Extract<UnifiedStreamEvent, { type: 'done' }> => e.type === 'done',
+      );
+      expect(errorEvents).toHaveLength(1);
+      for (const d of doneEvents) {
+        expect(
+          (d as unknown as { completion?: string }).completion,
+        ).not.toBe('upstream');
+      }
+    } finally {
+      server.stop(true);
+    }
   });
 });
