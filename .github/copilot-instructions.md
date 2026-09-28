@@ -4,7 +4,7 @@ Condensed digest. The authoritative rules live in [`AGENTS.md`](../AGENTS.md).
 
 ## What this repo is
 
-AI provider SDK + MCP server scaffolding. Monorepo of three
+AI provider SDK + MCP server scaffolding. Monorepo of four
 packages:
 
 - `@nova/contracts` — Zod schemas + TS interfaces for chat,
@@ -14,6 +14,9 @@ packages:
   reader for MCP servers.
 - `@nova/mcp` — unified operator MCP facade (planner, cost
   snapshot).
+- `@novaproto/exec-primitives` — execution primitives (process
+  supervision, stdio ACP transport, warm pool). Published to npm;
+  entry points are the built `dist/src`.
 
 Consumers (llamactl, sirius-gateway, embersynth) pull Nova via
 `file:` deps.
@@ -50,7 +53,8 @@ Consumers (llamactl, sirius-gateway, embersynth) pull Nova via
 packages/
 ├── contracts/        schemas + interfaces
 ├── mcp-shared/       audit, content, usage utilities
-└── mcp/              operator MCP facade
+├── mcp/              operator MCP facade
+└── exec-primitives/  execution primitives (built to dist/)
 ```
 
 ## Schema change = semver event

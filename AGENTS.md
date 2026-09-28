@@ -15,6 +15,10 @@ Nova is an AI-provider SDK + MCP server scaffolding:
   (audit sink, content envelopes, usage sink + reader).
 - `@nova/mcp` — unified operator MCP facade. Consumer of the two
   above.
+- `@novaproto/exec-primitives` — host-configured execution
+  primitives (process supervision, stdio ACP transport + permissions,
+  warm-process pool, ACP session bootstrap). No runtime dependencies;
+  published to npm.
 
 Nova is consumed via `file:` deps by sibling repos (`llamactl`,
 `sirius-gateway`, `embersynth`, and anything else built on top).
@@ -39,13 +43,17 @@ consumer.
 packages/
 ├── contracts/        @nova/contracts  — schemas + interfaces only
 ├── mcp-shared/       @nova/mcp-shared — audit + content + usage
-└── mcp/              @nova/mcp        — operator MCP facade
+├── mcp/              @nova/mcp        — operator MCP facade
+└── exec-primitives/  @novaproto/exec-primitives — execution primitives
 ```
 
 Each package carries its own `package.json`, `tsconfig.json`, and
 `test/`. Consumer ergonomics matter — keep `main` pointing at the
 TS source (`src/index.ts`) so `file:` deps work without a build
-step.
+step. Exception: `@novaproto/exec-primitives` is published to npm,
+so its `main`/`exports` point at the built `dist/src`; run
+`bun run build` in it before consuming it through a `file:` dep.
+Its release process is in `packages/exec-primitives/README.md`.
 
 ## Commands
 
