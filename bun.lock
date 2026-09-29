@@ -12,12 +12,21 @@
     },
     "packages/contracts": {
       "name": "@nova/contracts",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "^1.3.12",
+        "typescript": "^5.9.3",
+      },
+    },
+    "packages/exec-primitives": {
+      "name": "@novaproto/exec-primitives",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "^1.3.12",
+        "@types/node": "^25.6.0",
         "typescript": "^5.9.3",
       },
     },
@@ -63,6 +72,8 @@
     "@nova/mcp": ["@nova/mcp@workspace:packages/mcp"],
 
     "@nova/mcp-shared": ["@nova/mcp-shared@workspace:packages/mcp-shared"],
+
+    "@novaproto/exec-primitives": ["@novaproto/exec-primitives@workspace:packages/exec-primitives"],
 
     "@types/bun": ["@types/bun@1.3.12", "", { "dependencies": { "bun-types": "1.3.12" } }, "sha512-DBv81elK+/VSwXHDlnH3Qduw+KxkTIWi7TXkAeh24zpi5l0B2kUg9Ga3tb4nJaPcOFswflgi/yAvMVBPrxMB+A=="],
 
@@ -260,6 +271,6 @@
 
     "@nova/mcp-shared/@nova/contracts": ["@nova/contracts@file:packages/contracts", { "dependencies": { "zod": "^4.3.6" }, "devDependencies": { "@types/bun": "^1.3.12", "typescript": "^5.9.3" } }],
 
-    "@nova/mcp/@nova/mcp-shared/@nova/contracts": ["@nova/contracts@file:packages/contracts", {}],
+    "@nova/mcp/@nova/mcp-shared/@nova/contracts": ["@nova/contracts@file:packages/contracts", { "dependencies": { "zod": "^4.3.6" }, "devDependencies": { "@types/bun": "^1.3.12", "typescript": "^5.9.3" } }],
   }
 }

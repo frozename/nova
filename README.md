@@ -17,6 +17,7 @@ contracts every layer of that stack has to speak.
 | `@nova/contracts` | Canonical AI-provider contracts. Chat, embeddings, models, health, stream, usage schemas. `AiProvider` interface. Factory for OpenAI-compat adapters that covers chat + embeddings + streaming (content + tool-call deltas) out of the box. |
 | `@nova/mcp-shared` | Cross-cutting helpers for MCP servers that expose operator surfaces — audit sink, content envelope helper, usage-record sink + reader. Transport-agnostic; plug into any MCP server. |
 | `@nova/mcp` | Unified operator MCP server — roll-up tools over sibling YAML configs + usage JSONL, plus `nova.operator.plan`, the LLM-backed intent-to-plan translator. Optional; a reference consumer of the two layers above. |
+| `@novaproto/exec-primitives` | Host-configured execution primitives for running agent processes — process-group supervision, stdio ACP transport and permission handling, a warm-process pool, ACP session bootstrap. No runtime dependencies; built to `dist/` and published to npm. See [its README](packages/exec-primitives/README.md). |
 
 ## Why
 
@@ -213,13 +214,17 @@ packages/
 ├── mcp-shared/                # @nova/mcp-shared
 │   ├── src/{audit,content,usage,usage-reader,index}.ts
 │   └── test/
-└── mcp/                       # @nova/mcp
-    ├── bin/nova-mcp.ts
-    ├── src/
-    │   ├── cost/snapshot.ts
-    │   ├── planner/{schema,allowlist,prompt,executor}.ts
-    │   ├── paths.ts
-    │   └── server.ts
+├── mcp/                       # @nova/mcp
+│   ├── bin/nova-mcp.ts
+│   ├── src/
+│   │   ├── cost/snapshot.ts
+│   │   ├── planner/{schema,allowlist,prompt,executor}.ts
+│   │   ├── paths.ts
+│   │   └── server.ts
+│   └── test/
+└── exec-primitives/           # @novaproto/exec-primitives
+    ├── src/{process-supervisor,stdio-acp-*,acp-session,acp-warm-pool,host,index}.ts
+    ├── scripts/release-check.ts
     └── test/
 ```
 
