@@ -1,40 +1,119 @@
 name: release-exec-primitives
 
-# Publishes @novaproto/exec-primitives to the public npm registry.
+# Stages @novaproto/exec-primitives on the public npm registry.
 #
 # Trigger: pushing a tag named exec-primitives-v<version> (for example
-# exec-primitives-v0.1.0). Nothing else runs this workflow: no branch push, no
-# other tag pattern, no manual dispatch. It publishes only packages/exec-primitives.
+# exec-primitives-v0.2.0). No branch push, other tag pattern or manual dispatch
+# runs this workflow, and it releases only packages/exec-primitives.
 #
-# Required repository secret (one-time, manual): NPM_TOKEN, an npm automation or
-# granular access token that can publish public packages under the @novaproto
-# scope. Add it under Settings > Secrets and variables > Actions > New repository
-# secret before pushing the first tag. The publish step fails closed without it.
+# Jobs:
+#   build    contents: read only; no id-token, no secrets, no Actions cache.
+#            Refuses unless the tag names a plain X.Y.Z version and matches a
+#            publishable manifest (scripts/release-check.ts), then installs
+#            with the frozen lockfile, typechecks, tests, builds, packs
+#            exec-primitives.tgz and uploads it as the exec-primitives-tarball
+#            artifact.
+#   publish  Gated by the npm-release environment. The only job with
+#            id-token: write, because any code running in a job that holds it
+#            can mint a publish-capable npm token; so it checks out and installs
+#            nothing. It downloads the artifact into a directory that must hold
+#            only the tarball and runs npm from a fresh directory holding a copy
+#            of it, so no .npmrc from the artifact becomes npm's project config.
+#            It refuses unless the tarball is a single package/ tree whose
+#            package.json names the tag's package and version with
+#            publishConfig exactly {"access":"public"}, and stages it with
+#            `npm stage publish` (npm >= 11.15.0).
 #
-# Refusals, checked before anything is installed or built: the tag version must
-# equal packages/exec-primitives/package.json "version", the manifest must have
-# no "private" field, and publishConfig.access must be "public"
-# (scripts/release-check.ts).
+# Publishing is stage-only npm trusted publishing (OIDC): a staged version goes
+# live only after a maintainer approves it with 2FA on npmjs.com. No npm token
+# is used. npm silently falls back to a configured token when the OIDC exchange
+# fails, so the publish step refuses if NODE_AUTH_TOKEN, NPM_CONFIG_TOKEN or
+# NPM_TOKEN is set; if any npm config layer (environment, project, user or
+# global) carries an auth entry or sets tag, force, provenance, proxy,
+# https-proxy or strict-ssl; or if npm does not publish @novaproto to
+# https://registry.npmjs.org/.
 #
-# No --provenance: `bun publish` in the pinned bun 1.3.14 has no such flag.
-# Provenance would need `npm publish --provenance` and `id-token: write`.
+# One-time prerequisites, before the first tag push:
+#   - Environment npm-release with a required reviewer, deployment tags limited
+#     to exec-primitives-v*, and admin bypass off. A workflow that names a
+#     missing environment creates it without protection rules.
+#   - A tag ruleset targeting exec-primitives-v* with Restrict creations,
+#     Restrict updates and Restrict deletions, and the release maintainer (or
+#     the Repository admin role) on its bypass list, so only they can create
+#     release tags.
+#
+# First release (0.1.0). A trusted publisher can only be attached to a package
+# that already exists, so 0.1.0 is published once by hand, without provenance:
+#   1. Push exec-primitives-v0.1.0, let build finish, and reject the publish job
+#      at the npm-release environment gate.
+#   2. With an npm account that can publish under the @novaproto scope and has
+#      two-factor authentication set to authorization and writes, on a
+#      maintainer machine, in an empty directory (not the package folder,
+#      where a stale local tarball could be published instead), download the
+#      artifact, confirm its sha256 matches the line the build job's pack step
+#      printed, and publish it with a session-only web login. No npm token of
+#      any kind may be used, including a granular token that bypasses 2FA.
+#      npm's environment config outranks the user config, so a token in any
+#      npm_config_* variable would override the login; stop at any check that
+#      fails:
+#        cd "$(mktemp -d)"
+#        gh run download <run-id> -R frozename/nova -n exec-primitives-tarball
+#        sha256sum exec-primitives.tgz   # macOS: shasum -a 256 exec-primitives.tgz
+#        env | grep -i '^npm_config_'                  # must print nothing
+#        export NPM_CONFIG_USERCONFIG="$(mktemp)"
+#        npm config list | grep -E '_auth|_password'   # must print nothing
+#        npm login --auth-type=web
+#        npm config list   # exactly one _authToken, under the "user" config
+#                          # from $NPM_CONFIG_USERCONFIG; nothing "overridden"
+#        npm whoami
+#        npm profile get "two-factor auth"   # must print auth-and-writes
+#        npm publish ./exec-primitives.tgz --access public --dry-run
+#        npm publish ./exec-primitives.tgz --access public
+#        npm logout; rm "$NPM_CONFIG_USERCONFIG"; unset NPM_CONFIG_USERCONFIG
+#      The real npm publish must still stop for a 2FA challenge; if it does
+#      not, a token was used and must be revoked. A browser download of the
+#      artifact arrives as exec-primitives-tarball.zip; unzip it first.
+#   3. On npmjs.com, add the trusted publisher: organization or user frozename,
+#      repository nova, workflow filename release-exec-primitives.yml,
+#      environment npm-release, stage-only. Fields are case-sensitive and not
+#      validated on save. Then set "Require two-factor authentication and
+#      disallow tokens" on the package.
+#
+# Later releases: push the tag; approve the npm-release environment only if
+# the run is for the merged release commit and the tag you pushed; then approve
+# the staged version on npmjs.com only if its name, version and file list match
+# that tag. Reject anything you did not tag.
+#
+# Pre-releases and backports are not supported as-is. npm stage publish
+# refuses a pre-release, or a version below the highest published version that
+# is neither a pre-release nor deprecated, without an explicit --tag. This
+# workflow passes none and the tarball check rejects publishConfig.tag; both
+# jobs also refuse a tag that is not plain X.Y.Z, so a pre-release stops in
+# build, before the npm-release gate, while a backport passes the gate and npm
+# normally refuses it at the stage step (a client-side check; reject it on
+# npmjs.com if it is ever staged). Such a release needs a
+# commit that adds `--tag <dist-tag>` to the `npm stage publish` line below
+# (and, for a pre-release, relaxes both X.Y.Z checks) before that commit is
+# tagged. The trusted publisher binds only the workflow filename, so this edit
+# keeps it valid.
 
 on:
   push:
     tags:
       - "exec-primitives-v*"
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: release-exec-primitives-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: packages/exec-primitives
@@ -46,6 +125,18 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.3.14
+          no-cache: true
+
+      - name: Refuse unless the tag names a plain X.Y.Z version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          # npm stage publish refuses a pre-release without --tag, which this
+          # workflow does not pass; stop here, before the npm-release gate.
+          if ! [[ "$RELEASE_TAG" =~ ^exec-primitives-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Tag '$RELEASE_TAG' is not exec-primitives-v<major>.<minor>.<patch>; pre-releases need --tag, which this workflow does not pass."
+            exit 1
+          fi
 
       - name: Refuse unless the tag matches a publishable manifest
         env:
@@ -65,20 +156,148 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Pack (dry run) and confirm the entry point was built
+      - name: Pack and confirm the entry point is in the tarball
         run: |
           set -euo pipefail
           test -f dist/src/index.js
           test -f dist/src/index.d.ts
-          bun pm pack --dry-run
+          # Absolute: inside a workspace, a relative --filename resolves against the workspace root.
+          bun pm pack --filename "$PWD/exec-primitives.tgz"
+          listing="$(mktemp)"
+          tar -tzf exec-primitives.tgz > "$listing"
+          grep -qx 'package/dist/src/index.js' "$listing"
+          grep -qx 'package/dist/src/index.d.ts' "$listing"
+          sha256sum exec-primitives.tgz
 
-      - name: Publish
+      - name: Upload the tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: exec-primitives-tarball
+          path: packages/exec-primitives/exec-primitives.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-release
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC); no other job holds it
+    steps:
+      - name: Download the tarball built by the build job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: exec-primitives-tarball
+          path: ${{ runner.temp }}/release-artifact
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+
+      - name: Stage the tarball on npm (live only after 2FA approval on npmjs.com)
         env:
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [ -z "${NPM_CONFIG_TOKEN:-}" ]; then
-            echo "::error::The NPM_TOKEN repository secret is not set; nothing was published."
+
+          # No npm token: npm falls back to one silently if the OIDC exchange fails.
+          for var in NODE_AUTH_TOKEN NPM_CONFIG_TOKEN NPM_TOKEN; do
+            if [ -n "${!var:-}" ]; then
+              echo "::error::$var is set; this workflow publishes only through npm trusted publishing."
+              exit 1
+            fi
+          done
+
+          # The artifact directory must hold only the tarball, and npm runs from a
+          # fresh directory holding a copy of it, so no .npmrc from the artifact
+          # becomes npm's project config.
+          if [ "$(ls -A "$RUNNER_TEMP/release-artifact")" != exec-primitives.tgz ]; then
+            echo "::error::The exec-primitives-tarball artifact must contain only exec-primitives.tgz."
             exit 1
           fi
-          bun publish --access public
+          work="$(mktemp -d)"
+          cp "$RUNNER_TEMP/release-artifact/exec-primitives.tgz" "$work/"
+          cd "$work"
+
+          npm_config="$(npm config list)"
+          if grep -qE '_auth|_password' <<<"$npm_config"; then
+            echo "::error::npm configuration carries an auth entry; this workflow publishes only through npm trusted publishing."
+            exit 1
+          fi
+          # tag, force and provenance change what is staged and under which
+          # dist-tag (even an explicit tag=latest skips npm's pre-release and
+          # backport refusals); a proxy or strict-ssl=false exposes the OIDC
+          # exchange. All must stay at npm's defaults, in every config layer.
+          if grep -qE '^(; )?(tag|force|provenance|provenance-file|proxy|https-proxy|strict-ssl) = ' <<<"$npm_config" ||
+            [ "$(npm config get force)" != false ] ||
+            [ "$(npm config get proxy)" != null ] ||
+            [ "$(npm config get https-proxy)" != null ] ||
+            [ "$(npm config get strict-ssl)" != true ]; then
+            echo "::error::npm configuration sets tag, force, provenance, proxy, https-proxy or strict-ssl; npm stage publish runs only with npm's defaults for these."
+            exit 1
+          fi
+          if [ "$(npm config get registry)" != "https://registry.npmjs.org/" ] ||
+            [ "$(npm config get @novaproto:registry)" != "undefined" ]; then
+            echo "::error::npm must publish @novaproto packages to https://registry.npmjs.org/."
+            exit 1
+          fi
+
+          # npm stage publish needs npm >= 11.15.0.
+          npm_version="$(npm --version)"
+          if ! [[ "$npm_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Unrecognized npm version '$npm_version'; npm >= 11.15.0 is required."
+            exit 1
+          fi
+          npm_major="${BASH_REMATCH[1]}"
+          npm_minor="${BASH_REMATCH[2]}"
+          if [ "$npm_major" -lt 11 ] || { [ "$npm_major" -eq 11 ] && [ "$npm_minor" -lt 15 ]; }; then
+            echo "::error::npm $npm_version is too old; npm stage publish needs npm >= 11.15.0."
+            exit 1
+          fi
+
+          # npm strips the first path segment of every tarball entry, reads the
+          # last package.json it finds (including one after a lone zero block),
+          # and lets that manifest's publishConfig override registry and tag. So
+          # every entry must sit under package/ with no empty, "." or ".."
+          # segment, package/package.json must appear exactly once (counting past
+          # zero blocks), and publishConfig must be exactly {"access":"public"}.
+          # A .npmrc cannot set registry or tag either: see the checks above.
+          # A pre-release needs --tag, which this step does not pass.
+          if ! [[ "$RELEASE_TAG" =~ ^exec-primitives-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Tag '$RELEASE_TAG' is not exec-primitives-v<major>.<minor>.<patch>."
+            exit 1
+          fi
+          listing="$(tar --ignore-zeros -tzf ./exec-primitives.tgz)"
+          if grep -qv '^package/' <<<"$listing" ||
+            grep -qE '//|(^|/)\.\.?(/|$)' <<<"$listing" ||
+            [ "$(grep -cx 'package/package.json' <<<"$listing")" != 1 ]; then
+            echo "::error::Tarball is not a single package/ tree with exactly one package/package.json."
+            exit 1
+          fi
+          manifest_dir="$(mktemp -d)"
+          tar --ignore-zeros -xzf ./exec-primitives.tgz -C "$manifest_dir" package/package.json
+          EXPECTED="@novaproto/exec-primitives@${RELEASE_TAG#exec-primitives-v}" \
+          MANIFEST="$manifest_dir/package/package.json" \
+            node -e '
+              const pkg = JSON.parse(require("node:fs").readFileSync(process.env.MANIFEST, "utf8"));
+              const actual = pkg.name + "@" + pkg.version;
+              if (actual !== process.env.EXPECTED) {
+                console.error("::error::Tarball is " + actual + "; the tag names " + process.env.EXPECTED + ".");
+                process.exit(1);
+              }
+              if ("private" in pkg) {
+                console.error("::error::Tarball package.json has a private field.");
+                process.exit(1);
+              }
+              const publishConfig = JSON.stringify(pkg.publishConfig);
+              if (publishConfig !== JSON.stringify({ access: "public" })) {
+                console.error("::error::Tarball publishConfig is " + publishConfig + "; only {\"access\":\"public\"} is allowed.");
+                process.exit(1);
+              }
+              console.log("Staging " + actual);
+            '
+
+          npm stage publish ./exec-primitives.tgz
