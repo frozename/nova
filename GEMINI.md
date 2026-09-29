@@ -19,8 +19,9 @@ conventions only.
   embersynth-specific shapes. Put them in the consumer repo.
 - **Zod 4 only** — `z.record(z.string(), z.unknown())`,
   `.partial()`, `z.discriminatedUnion`. No Zod 3 idioms.
-- **`workspace:*` for inter-package deps** — `bun publish`
-  rewrites them to a concrete version range on release.
+- **`workspace:*` for inter-package deps** — `bun pm pack` in the
+  release workflow rewrites them to the exact version recorded in
+  `bun.lock`; npm itself does not rewrite `workspace:` specs.
 - **Bun** only — no `npm`, `yarn`, `pnpm`.
 - **No framework deps in `@novaproto/contracts`.** It's schemas +
   interfaces. Zero runtime side effects.

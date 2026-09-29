@@ -49,7 +49,10 @@ Each package carries its own `package.json`, `tsconfig.json`, and
 the compiled `dist/src/index.js` and `types` at the `.d.ts`, so the
 published artifacts are **node-portable** — consumers do not need Bun.
 The three packages reference each other internally with `workspace:*`,
-which `bun publish` rewrites to the concrete version at release time.
+which `bun pm pack` in the release workflow rewrites to the exact
+version recorded for the dependency under `workspaces` in `bun.lock`;
+npm itself does not rewrite `workspace:` specs. `bun install` does not
+update that entry, so a version bump sets it in `bun.lock` by hand.
 
 ## Commands
 
@@ -284,8 +287,10 @@ facade; the two coexist as siblings.
 - Cross-package **relative** imports (`../../contracts/src/...`). The
   `no-cross-package-relative` lint guard fails the build on these;
   import the package by name (`@novaproto/contracts`) instead. The internal
-  `workspace:*` deps are deliberate — `bun publish` rewrites them to a
-  concrete version, so they do not leak to consumers.
+  `workspace:*` deps are deliberate — `bun pm pack` in the release
+  workflow rewrites them to the exact version recorded in `bun.lock`
+  (npm itself does not rewrite `workspace:` specs), so they do not leak
+  to consumers.
 
 ## When in doubt
 

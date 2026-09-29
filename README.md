@@ -181,7 +181,7 @@ npm install @novaproto/contracts @novaproto/mcp-shared @novaproto/mcp
 
 **Node-portable.** Each package builds to `dist/src/*.js` + `.d.ts` via `tsc --build`, with `main` / `types` pointing at the compiled JS — so consumers run on plain Node. Bun is the development and CI runtime only; the published artifacts run anywhere Node does.
 
-Inside this monorepo the three packages reference each other with `workspace:*`; `bun publish` (and `npm publish`) rewrite that to the concrete published version at release time, so consumers always pull a real semver range, never a workspace or file specifier.
+Inside this monorepo the three packages reference each other with `workspace:*`. The release workflow packs each package with `bun pm pack`, which rewrites that to the exact version recorded for the dependency under `workspaces` in `bun.lock` (for example `"@novaproto/contracts": "0.1.0"`), and refuses a tarball that still carries a `workspace:` or other non-registry spec, or whose `@novaproto/*` version differs from that dependency's `package.json`, so consumers always pull a real published version, never a workspace or file specifier. npm itself does not rewrite `workspace:` specs.
 
 ## Examples
 
@@ -297,7 +297,35 @@ bun test                   # all packages
 
 CI (`.github/workflows/check.yml`) re-runs the full gate as a hard block on every pull request and push to `main`. The test step routes through `scripts/bun-test-gate.ts`, which gates on reported pass/fail counts and tolerates a Bun NAPI-teardown panic (exit 133) **only** when zero tests failed.
 
-Releases (`.github/workflows/release.yml`) publish the `@novaproto/*` packages to npm in dependency order — **contracts → mcp-shared → mcp**. The default run is a dry-run pack; a `v*` tag or a manual dispatch with `dry_run=false` publishes for real.
+### Releasing
+
+Releases are tag-driven, one package per run. `.github/workflows/release.yml` runs only when a tag named `contracts-v<version>`, `mcp-shared-v<version>` or `mcp-v<version>` is pushed, and releases only the package the tag names. Its `build` job has read-only permissions and no credentials: it refuses a tag that is not one of those three names with a plain `X.Y.Z` version, checks that package's manifest (`name` and `version` must match the tag, `private` must be absent, `publishConfig` must be exactly `{"access":"public"}`) and that `bun.lock` records, under `workspaces`, the `package.json` version of that package and of each `@novaproto/*` dependency it declares (no other workspace is checked), installs with the frozen lockfile, builds, runs lint with the strict typecheck, runs every test suite through the `check.yml` test gate, and packs `<package>.tgz` with `bun pm pack`. Packing rewrites `workspace:*` to the version recorded under `workspaces` in `bun.lock` (npm itself does not rewrite `workspace:` specs); the job refuses a tarball that lacks a declared entry point, whose `dependencies`, `optionalDependencies` or `peerDependencies` hold a `workspace:`, `catalog:`, `file:`, `link:`, git, URL, path or tarball-file (`.tgz`, `.tar`, `.tar.gz`) spec, or whose `@novaproto/*` dependency is not the exact version in that dependency's `package.json`. Its `publish` job waits for approval on the `npm-release` environment, checks out nothing, re-checks the tarball's structure, name, version, `private`, `publishConfig` and dependency-spec kinds (an `@novaproto/*` one must be an exact `X.Y.Z`), refuses unless every `@novaproto/*` dependency version is already live on the public registry and its published `dependencies` pin each `@novaproto/*` package the tarball also pins at the same version, then stages that exact tarball with `npm stage publish` through npm trusted publishing (OIDC). No npm token is used; the job refuses to run if one is configured. A staged version goes live only after a maintainer approves it with two-factor authentication on npmjs.com.
+
+**One-time setup (before the first tag push).**
+
+- Add `contracts-v*`, `mcp-shared-v*` and `mcp-v*` to the deployment tags of the `npm-release` environment, which the exec-primitives release shares (required reviewer, admin bypass off). Keep `exec-primitives-v*` there too: dropping a pattern blocks that package's releases at the environment gate. A workflow that names a missing environment creates it without protection rules.
+- Cover `contracts-v*`, `mcp-shared-v*` and `mcp-v*` with a tag ruleset (Restrict creations, Restrict updates and Restrict deletions, with the release maintainer or the Repository admin role on its bypass list), so only they can create release tags.
+- All three packages already exist on npm, so none needs a manual first publish. On npmjs.com, for each of `@novaproto/contracts`, `@novaproto/mcp-shared` and `@novaproto/mcp`, add a trusted publisher: organization or user `frozename`, repository `nova`, workflow filename `release.yml`, environment `npm-release`, stage-only. The fields are case-sensitive and not validated on save. Then set "Require two-factor authentication and disallow tokens" on the package.
+- Revoke every npm token that can publish under `@novaproto`, including any used to publish 0.1.0, and delete any `NPM_TOKEN` secret (repository or environment). Never add one: a tag push runs the workflow file at the tagged commit, and older commits carry a token-based `release.yml` that a `v*` tag runs with the `NPM_TOKEN` secret. Adding `v*` to the tag ruleset above keeps anyone outside its bypass list from pushing such a tag.
+
+**Release order.** Release in dependency order: **contracts → mcp-shared → mcp**. `bun pm pack` pins each `@novaproto/*` dependency to the version recorded for it under `workspaces` in `bun.lock`, and the `build` job refuses unless that equals the version in the dependency's `package.json`. The `publish` job refuses to stage a package while a pinned dependency version is not live (a staged, unapproved version is not), so approve a dependency on npmjs.com before pushing its dependent's tag. If the `publish` job refused for that reason, approve the dependency, then re-run the failed job. The pins are exact, so the `publish` job also refuses a package whose pinned dependency pins a different version of a package both depend on: `mcp` released after `contracts`, while the live `mcp-shared` still pins the previous `contracts`. So after releasing a package, re-release every package that depends on it, in order, before releasing anything further downstream: after `contracts`, release `mcp-shared`, then `mcp`. If a dependency's source changed since its last release, bump and release it first: a dependent released without that bump pins the previously published version.
+
+**Every release.**
+
+1. In a release commit, set `version` in the package's `package.json`, and set the same `version` for that package under `workspaces` in `bun.lock` by hand: `bun install` does not update that entry, and regenerating `bun.lock` would re-resolve every dependency. Merge the commit to `main`.
+2. Tag the merged commit and push the tag:
+
+   ```sh
+   git tag <package>-v<version> <merged-release-commit>
+   git push origin <package>-v<version>
+   ```
+
+3. Approve the `publish` job on the `npm-release` environment only if the run is for the release commit you merged and the tag you pushed.
+4. Approve the staged version on npmjs.com with two-factor authentication only if its name and version are the ones the tag names, its file list is the one you expect, and each `@novaproto/*` dependency version equals the version in `packages/<dependency>/package.json` at the tagged commit. Reject anything you did not tag.
+
+Pre-releases and backports are not supported as-is. `npm stage publish` refuses a pre-release, or a version below the highest published version that is neither a pre-release nor deprecated, without an explicit `--tag`. The workflow passes none and the tarball check rejects `publishConfig.tag`. A pre-release tag (not plain `X.Y.Z`) is refused by the `build` job, before the approval gate; a backport passes the gate and npm normally refuses it at the stage step (a client-side check; reject it on npmjs.com if it is ever staged). Either needs a commit that adds `--tag <dist-tag>` to the workflow's `npm stage publish` line (and, for a pre-release, relaxes the `X.Y.Z` checks in both jobs, including the one on `@novaproto/*` dependency specs) before that commit is tagged. The trusted publisher binds only the workflow filename, so this edit keeps it valid.
+
+A published version number can never be reused on npm, even after an unpublish.
 
 ## Reference consumers
 

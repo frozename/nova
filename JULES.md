@@ -32,7 +32,7 @@ because you won't be there to iterate.
 
 - **Nova is an SDK.** No llamactl/sirius/embersynth-specific shapes.
 - **Zod 4 idioms.** No `z.record(z.unknown())`.
-- **`workspace:*` deps** between Nova packages — `bun publish` rewrites them to a concrete version range on release.
+- **`workspace:*` deps** between Nova packages — `bun pm pack` in the release workflow rewrites them to the exact version recorded in `bun.lock`; npm itself does not rewrite `workspace:` specs.
 - **Bun** only.
 - **No framework deps in `@novaproto/contracts`.**
 - **No AI / tool attribution** in commit messages.

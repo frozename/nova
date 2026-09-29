@@ -30,8 +30,9 @@ Consumers (llamactl, sirius-gateway, embersynth) pull Nova via
   dependency, never the dependent.
 - **Zod 4 idioms only** — `z.record(z.string(), z.unknown())`,
   `.partial()`, `z.discriminatedUnion`.
-- **`file:../sibling` between Nova packages**, never `workspace:*`
-  (breaks external consumers).
+- **`workspace:*` between Nova packages** — `bun pm pack` in the
+  release workflow rewrites them to the exact version recorded in
+  `bun.lock`; npm itself does not rewrite `workspace:` specs.
 - **`@novaproto/contracts` has zero runtime deps.** Schemas + interfaces.
 - **Bun** for all commands.
 - **English** identifiers only.
