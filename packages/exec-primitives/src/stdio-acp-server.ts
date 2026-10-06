@@ -118,7 +118,7 @@ export function startStdioAcpServer(opts: StdioAcpServerOptions): Promise<StdioA
       proc.cancel();
     },
     exited: proc.exit.then((record) => record.code),
-    pid: proc.pid,
+    ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
     getStderrTail: () => Buffer.concat(tailChunks).toString("utf8"),
     getSpawnError: () => proc.spawnError,
   });

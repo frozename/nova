@@ -57,9 +57,9 @@ export interface ResolvedPermissionContext {
 
 interface RetainedToolCallContext {
   hasRawInput: boolean;
-  name?: string;
+  name?: string | undefined;
   rawInput?: unknown;
-  title?: string;
+  title?: string | undefined;
 }
 
 interface RetainedRawInput {

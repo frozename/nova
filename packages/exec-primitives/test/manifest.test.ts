@@ -7,6 +7,7 @@ import { PACKAGE_NAME, releaseProblems, TAG_PREFIX } from "../scripts/release-ch
 const PACKAGE_DIR = dirname(import.meta.dir);
 
 function readManifest(): Record<string, unknown> {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The manifest is fixed relative to this test file and cannot be supplied externally.
   const text = readFileSync(join(PACKAGE_DIR, "package.json"), "utf8");
   return JSON.parse(text) as Record<string, unknown>;
 }

@@ -35,7 +35,6 @@ describe("[B10] single-owner guarantees", () => {
             exited: new Promise<number | null>(() => {
               // pending forever: a live mock handle
             }),
-            pid: undefined,
             getStderrTail: () => "",
             getSpawnError: () => null,
           },

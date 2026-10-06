@@ -17,7 +17,6 @@ function mockHandle(): { handle: lib.StdioAcpHandle; killed: () => boolean } {
     exited: new Promise<number | null>(() => {
       // pending forever: a live mock handle
     }),
-    pid: undefined,
     getStderrTail: () => "",
     getSpawnError: () => null,
   };
@@ -110,7 +109,7 @@ describe("[B7] warm pool", () => {
           pooledProc.kill("SIGKILL");
         },
         exited: pooledProc.exit.then((r) => r.code),
-        pid: pooledProc.pid,
+        ...(pooledProc.pid !== undefined ? { pid: pooledProc.pid } : {}),
         getStderrTail: () => "",
         getSpawnError: () => null,
       };

@@ -14,8 +14,8 @@ function makeClient(opts?: { framing?: "newline" | "content-length"; logger?: li
   const client = new lib.StdioAcpClient({
     stdin,
     stdout,
-    framing: opts?.framing,
-    logger: opts?.logger,
+    ...(opts?.framing !== undefined ? { framing: opts.framing } : {}),
+    ...(opts?.logger !== undefined ? { logger: opts.logger } : {}),
   });
   return { client, stdin, stdout };
 }
