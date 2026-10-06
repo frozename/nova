@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Provider health. Adapters report; orchestrators decide whether to
@@ -7,12 +7,7 @@ import { z } from 'zod';
  * before full removal from the pool.
  */
 
-export const ProviderHealthStateSchema = z.enum([
-  'healthy',
-  'degraded',
-  'unhealthy',
-  'unknown',
-]);
+export const ProviderHealthStateSchema = z.enum(["healthy", "degraded", "unhealthy", "unknown"]);
 export type ProviderHealthState = z.infer<typeof ProviderHealthStateSchema>;
 
 export const ProviderHealthSchema = z.object({

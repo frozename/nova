@@ -1,5 +1,6 @@
-import { z } from 'zod';
-import { FinishReasonSchema, ToolCallDeltaSchema, ToolCallSchema } from './chat.js';
+import { z } from "zod";
+
+import { FinishReasonSchema, ToolCallDeltaSchema, ToolCallSchema } from "./chat.js";
 
 /**
  * Unified streaming events. Adapters convert their provider's native
@@ -10,7 +11,7 @@ import { FinishReasonSchema, ToolCallDeltaSchema, ToolCallSchema } from './chat.
  */
 
 export const StreamDeltaSchema = z.object({
-  role: z.enum(['assistant', 'tool']).optional(),
+  role: z.enum(["assistant", "tool"]).optional(),
   content: z.string().nullable().optional(),
   /**
    * Streaming tool-call deltas — OpenAI emits partial tool_call frames
@@ -36,7 +37,7 @@ export const StreamChoiceSchema = z.object({
  */
 export const UnifiedStreamChunkSchema = z.object({
   id: z.string(),
-  object: z.literal('chat.completion.chunk'),
+  object: z.literal("chat.completion.chunk"),
   model: z.string(),
   created: z.number().int(),
   choices: z.array(StreamChoiceSchema).min(1),
@@ -58,7 +59,7 @@ export type UnifiedStreamChunk = z.infer<typeof UnifiedStreamChunkSchema>;
  * Optional — older adapters omit it; consumers treat absent as
  * "provenance unknown" rather than assuming completion.
  */
-export const StreamCompletionSchema = z.enum(['upstream', 'eof', 'error']);
+export const StreamCompletionSchema = z.enum(["upstream", "eof", "error"]);
 export type StreamCompletion = z.infer<typeof StreamCompletionSchema>;
 
 /**
@@ -67,16 +68,16 @@ export type StreamCompletion = z.infer<typeof StreamCompletionSchema>;
  * chat panels that need distinct tool-call / error states). Adapters
  * MAY yield these instead of raw chunks; routers translate both.
  */
-export const UnifiedStreamEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('chunk'), chunk: UnifiedStreamChunkSchema }),
+export const UnifiedStreamEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("chunk"), chunk: UnifiedStreamChunkSchema }),
   z.object({
-    type: z.literal('tool_call'),
+    type: z.literal("tool_call"),
     toolCall: ToolCallSchema,
     /** Which choice index the call belongs to (for N>1 sampling). */
     choiceIndex: z.number().int().nonnegative().default(0),
   }),
   z.object({
-    type: z.literal('error'),
+    type: z.literal("error"),
     error: z.object({
       message: z.string(),
       code: z.string().optional(),
@@ -84,7 +85,7 @@ export const UnifiedStreamEventSchema = z.discriminatedUnion('type', [
     }),
   }),
   z.object({
-    type: z.literal('done'),
+    type: z.literal("done"),
     finish_reason: FinishReasonSchema.nullable(),
     completion: StreamCompletionSchema.optional(),
   }),

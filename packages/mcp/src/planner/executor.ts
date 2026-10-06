@@ -1,10 +1,6 @@
-import { PlanSchema, type Plan, type PlannerToolDescriptor } from './schema.js';
-import {
-  DEFAULT_ALLOWLIST,
-  filterTools,
-  type AllowlistConfig,
-} from './allowlist.js';
-import { buildPlannerPrompt } from './prompt.js';
+import { type AllowlistConfig, DEFAULT_ALLOWLIST, filterTools } from "./allowlist.js";
+import { buildPlannerPrompt } from "./prompt.js";
+import { type Plan, type PlannerToolDescriptor, PlanSchema } from "./schema.js";
 
 /**
  * Executor seam for `nova.operator.plan`.
@@ -36,7 +32,7 @@ export type PlannerExecutorResult =
   | { ok: true; rawPlan: unknown; trace?: Record<string, unknown> }
   | {
       ok: false;
-      reason: 'model-error' | 'no-tool-call' | 'parse-failed';
+      reason: "model-error" | "no-tool-call" | "parse-failed";
       message: string;
       trace?: Record<string, unknown>;
     };
@@ -57,15 +53,15 @@ export interface PlannerExecutor {
  * the stub explicitly via config to sanity-check the wiring.
  */
 export const stubPlannerExecutor: PlannerExecutor = {
-  name: 'stub',
-  async generate(input) {
+  name: "stub",
+  generate(input) {
     // Pick a tool from the filtered catalog so the plan survives
     // the allowlist post-validation gate in `runPlanner`. Empty
     // catalog → fall back to `nova.ops.overview`; `runPlanner` will
     // then reject with `disallowed-tool`, which is the right
     // fail-closed behaviour when nothing is allowed.
-    const toolName = input.tools[0]?.name ?? 'nova.ops.overview';
-    return {
+    const toolName = input.tools[0]?.name ?? "nova.ops.overview";
+    return Promise.resolve({
       ok: true,
       rawPlan: {
         steps: [
@@ -73,19 +69,19 @@ export const stubPlannerExecutor: PlannerExecutor = {
             tool: toolName,
             args: {},
             annotation:
-              'stub-executor default: real model not bound yet — invoking a read tool from the allowlisted catalog so the operator can refine the goal',
+              "stub-executor default: real model not bound yet — invoking a read tool from the allowlisted catalog so the operator can refine the goal",
           },
         ],
         reasoning:
           `stub planner acknowledging goal; returning a single ${toolName} call. ` +
-          `Real LLM wiring uses @nova/mcp's createLlmExecutor. (${input.tools.length} tool${input.tools.length === 1 ? '' : 's'} in the allowlist)`,
+          `Real LLM wiring uses @novaproto/mcp's createLlmExecutor. (${String(input.tools.length)} tool${input.tools.length === 1 ? "" : "s"} in the allowlist)`,
         requiresConfirmation: false,
       },
       trace: {
-        executor: 'stub',
+        executor: "stub",
         toolCount: input.tools.length,
       },
-    };
+    });
   },
 };
 
@@ -107,11 +103,7 @@ export type RunPlannerResult =
     }
   | {
       ok: false;
-      reason:
-        | 'executor-failed'
-        | 'plan-shape-invalid'
-        | 'empty-goal'
-        | 'disallowed-tool';
+      reason: "executor-failed" | "plan-shape-invalid" | "empty-goal" | "disallowed-tool";
       message: string;
       executor?: string;
       rawPlan?: unknown;
@@ -122,6 +114,16 @@ export type RunPlannerResult =
       trace?: Record<string, unknown>;
     };
 
+// Preserve the absent/undefined distinction under exactOptionalPropertyTypes:
+// when the executor returns no trace, the field is omitted entirely rather
+// than set to `undefined`. Extracted so the four call sites don't each add a
+// branch to runPlanner's cognitive complexity.
+function traceField(trace: Record<string, unknown> | undefined): {
+  trace?: Record<string, unknown>;
+} {
+  return trace !== undefined ? { trace } : {};
+}
+
 /**
  * Composable run: allowlist → prompt → executor → schema-validate.
  * Pure logic (aside from whatever the executor does) — no MCP, no
@@ -131,7 +133,7 @@ export type RunPlannerResult =
 export async function runPlanner(opts: RunPlannerOptions): Promise<RunPlannerResult> {
   const goal = opts.goal.trim();
   if (goal.length === 0) {
-    return { ok: false, reason: 'empty-goal', message: 'operator goal must be a non-empty string' };
+    return { ok: false, reason: "empty-goal", message: "operator goal must be a non-empty string" };
   }
   const allowlist = opts.allowlist ?? DEFAULT_ALLOWLIST;
   const filtered = filterTools(opts.tools, allowlist);
@@ -150,21 +152,21 @@ export async function runPlanner(opts: RunPlannerOptions): Promise<RunPlannerRes
   if (!exec.ok) {
     return {
       ok: false,
-      reason: 'executor-failed',
+      reason: "executor-failed",
       message: `${exec.reason}: ${exec.message}`,
       executor: executor.name,
-      trace: exec.trace,
+      ...traceField(exec.trace),
     };
   }
   const parsed = PlanSchema.safeParse(exec.rawPlan);
   if (!parsed.success) {
     return {
       ok: false,
-      reason: 'plan-shape-invalid',
-      message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+      reason: "plan-shape-invalid",
+      message: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
       executor: executor.name,
       rawPlan: exec.rawPlan,
-      trace: exec.trace,
+      ...traceField(exec.trace),
     };
   }
   // Safety gate: every step's tool MUST be in the filtered allowlist.
@@ -179,12 +181,12 @@ export async function runPlanner(opts: RunPlannerOptions): Promise<RunPlannerRes
   if (disallowed.length > 0) {
     return {
       ok: false,
-      reason: 'disallowed-tool',
-      message: `plan references tool(s) outside the allowlisted catalog: ${[...new Set(disallowed)].join(', ')}`,
+      reason: "disallowed-tool",
+      message: `plan references tool(s) outside the allowlisted catalog: ${[...new Set(disallowed)].join(", ")}`,
       executor: executor.name,
       rawPlan: exec.rawPlan,
       disallowedTools: [...new Set(disallowed)],
-      trace: exec.trace,
+      ...traceField(exec.trace),
     };
   }
   return {
@@ -192,6 +194,6 @@ export async function runPlanner(opts: RunPlannerOptions): Promise<RunPlannerRes
     plan: parsed.data,
     executor: executor.name,
     toolsAvailable: filtered.map((t) => t.name),
-    trace: exec.trace,
+    ...traceField(exec.trace),
   };
 }

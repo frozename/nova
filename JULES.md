@@ -10,8 +10,8 @@ because you won't be there to iterate.
 ## Before opening a PR
 
 1. Read `AGENTS.md` at the repo root.
-2. Identify which package(s) the issue touches: `@nova/contracts`,
-   `@nova/mcp-shared`, `@nova/mcp`.
+2. Identify which package(s) the issue touches: `@novaproto/contracts`,
+   `@novaproto/mcp-shared`, `@novaproto/mcp`.
 3. Run `bun install && bun test && bun run typecheck`. If any of
    those are red before your change, report and stop — don't try
    to fix preexisting failures alongside a feature.
@@ -22,7 +22,7 @@ because you won't be there to iterate.
   unrelated refactor. Reviewers need to reason about one
   semantically-cohesive change.
 - **Cross-repo sync is the user's responsibility**, not yours. If
-  your change bumps `@nova/contracts`, note it in the PR body so
+  your change bumps `@novaproto/contracts`, note it in the PR body so
   the user can plan the downstream `bun install` sweep across
   llamactl, sirius-gateway, embersynth.
 - **Tests before code** when feasible. Every new behaviour needs a
@@ -32,9 +32,9 @@ because you won't be there to iterate.
 
 - **Nova is an SDK.** No llamactl/sirius/embersynth-specific shapes.
 - **Zod 4 idioms.** No `z.record(z.unknown())`.
-- **`file:../sibling` deps** between Nova packages, not `workspace:*`.
+- **`workspace:*` deps** between Nova packages — `bun pm pack` in the release workflow rewrites them to the exact version recorded in `bun.lock`; npm itself does not rewrite `workspace:` specs.
 - **Bun** only.
-- **No framework deps in `@nova/contracts`.**
+- **No framework deps in `@novaproto/contracts`.**
 - **No AI / tool attribution** in commit messages.
 
 ## PR body checklist

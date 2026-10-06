@@ -7,12 +7,12 @@ Condensed digest. The authoritative rules live in [`AGENTS.md`](../AGENTS.md).
 AI provider SDK + MCP server scaffolding. Monorepo of four
 packages:
 
-- `@nova/contracts` — Zod schemas + TS interfaces for chat,
+- `@novaproto/contracts` — Zod schemas + TS interfaces for chat,
   embeddings, models, health, stream, usage. `AiProvider` interface.
   OpenAI-compat adapter factory.
-- `@nova/mcp-shared` — audit sink, content envelopes, usage sink +
+- `@novaproto/mcp-shared` — audit sink, content envelopes, usage sink +
   reader for MCP servers.
-- `@nova/mcp` — unified operator MCP facade (planner, cost
+- `@novaproto/mcp` — unified operator MCP facade (planner, cost
   snapshot).
 - `@novaproto/exec-primitives` — execution primitives (process
   supervision, stdio ACP transport, warm pool). Published to npm;
@@ -33,9 +33,10 @@ Consumers (llamactl, sirius-gateway, embersynth) pull Nova via
   dependency, never the dependent.
 - **Zod 4 idioms only** — `z.record(z.string(), z.unknown())`,
   `.partial()`, `z.discriminatedUnion`.
-- **`file:../sibling` between Nova packages**, never `workspace:*`
-  (breaks external consumers).
-- **`@nova/contracts` has zero runtime deps.** Schemas + interfaces.
+- **`workspace:*` between Nova packages** — `bun pm pack` in the
+  release workflow rewrites them to the exact version recorded in
+  `bun.lock`; npm itself does not rewrite `workspace:` specs.
+- **`@novaproto/contracts` has zero runtime deps.** Schemas + interfaces.
 - **Bun** for all commands.
 - **English** identifiers only.
 - **No comments for what.** Comments for WHY.
@@ -59,6 +60,6 @@ packages/
 
 ## Schema change = semver event
 
-Editing a schema in `@nova/contracts` is a wire-shape change. Bump
+Editing a schema in `@novaproto/contracts` is a wire-shape change. Bump
 the package version + note in the PR body which consumers need a
 lockfile refresh (llamactl, sirius-gateway, embersynth).

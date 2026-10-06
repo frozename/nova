@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Chat-completion wire types — the OpenAI-compatible dialect is the
@@ -8,42 +8,42 @@ import { z } from 'zod';
  * `providerOptions` (opaque record) rather than the top-level shape.
  */
 
-export const RoleSchema = z.enum(['system', 'user', 'assistant', 'tool', 'developer']);
+export const RoleSchema = z.enum(["system", "user", "assistant", "tool", "developer"]);
 export type Role = z.infer<typeof RoleSchema>;
 
 export const FinishReasonSchema = z.enum([
-  'stop',
-  'length',
-  'tool_calls',
-  'content_filter',
-  'error',
+  "stop",
+  "length",
+  "tool_calls",
+  "content_filter",
+  "error",
 ]);
 export type FinishReason = z.infer<typeof FinishReasonSchema>;
 
 // ---- Content blocks ----------------------------------------------------
 
 export const TextBlockSchema = z.object({
-  type: z.literal('text'),
+  type: z.literal("text"),
   text: z.string(),
 });
 
 export const ImageBlockSchema = z.object({
-  type: z.literal('image_url'),
+  type: z.literal("image_url"),
   image_url: z.object({
     url: z.string(),
-    detail: z.enum(['auto', 'low', 'high']).optional(),
+    detail: z.enum(["auto", "low", "high"]).optional(),
   }),
 });
 
 export const InputAudioBlockSchema = z.object({
-  type: z.literal('input_audio'),
+  type: z.literal("input_audio"),
   input_audio: z.object({
     data: z.string(),
-    format: z.enum(['wav', 'mp3']),
+    format: z.enum(["wav", "mp3"]),
   }),
 });
 
-export const ContentBlockSchema = z.discriminatedUnion('type', [
+export const ContentBlockSchema = z.discriminatedUnion("type", [
   TextBlockSchema,
   ImageBlockSchema,
   InputAudioBlockSchema,
@@ -54,7 +54,7 @@ export type ContentBlock = z.infer<typeof ContentBlockSchema>;
 
 export const ToolCallSchema = z.object({
   id: z.string(),
-  type: z.literal('function'),
+  type: z.literal("function"),
   function: z.object({
     name: z.string(),
     arguments: z.string(),
@@ -76,7 +76,7 @@ export type ToolCall = z.infer<typeof ToolCallSchema>;
 export const ToolCallDeltaSchema = z.object({
   index: z.number().int().nonnegative(),
   id: z.string().optional(),
-  type: z.literal('function').optional(),
+  type: z.literal("function").optional(),
   function: z
     .object({
       name: z.string().optional(),
@@ -98,7 +98,7 @@ export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 // ---- Tools + response formats -----------------------------------------
 
 export const ToolSchema = z.object({
-  type: z.literal('function'),
+  type: z.literal("function"),
   function: z.object({
     name: z.string(),
     description: z.string().optional(),
@@ -109,19 +109,19 @@ export const ToolSchema = z.object({
 export type Tool = z.infer<typeof ToolSchema>;
 
 export const ToolChoiceSchema = z.union([
-  z.enum(['auto', 'none', 'required']),
+  z.enum(["auto", "none", "required"]),
   z.object({
-    type: z.literal('function'),
+    type: z.literal("function"),
     function: z.object({ name: z.string() }),
   }),
 ]);
 export type ToolChoice = z.infer<typeof ToolChoiceSchema>;
 
 export const ResponseFormatSchema = z.union([
-  z.object({ type: z.literal('text') }),
-  z.object({ type: z.literal('json_object') }),
+  z.object({ type: z.literal("text") }),
+  z.object({ type: z.literal("json_object") }),
   z.object({
-    type: z.literal('json_schema'),
+    type: z.literal("json_schema"),
     json_schema: z.object({
       name: z.string(),
       description: z.string().optional(),
@@ -177,7 +177,7 @@ export const UnifiedChoiceSchema = z.object({
 
 export const UnifiedAiResponseSchema = z.object({
   id: z.string(),
-  object: z.literal('chat.completion'),
+  object: z.literal("chat.completion"),
   model: z.string(),
   created: z.number().int(),
   choices: z.array(UnifiedChoiceSchema).min(1),

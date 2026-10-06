@@ -1,6 +1,6 @@
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 /**
  * Append-only JSONL audit sink. Every mutation tool emits one record
@@ -41,20 +41,20 @@ export interface AuditOptions {
 }
 
 export function defaultAuditDir(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.LLAMACTL_MCP_AUDIT_DIR?.trim();
+  const override = env["LLAMACTL_MCP_AUDIT_DIR"]?.trim();
   if (override) return override;
-  return join(homedir(), '.llamactl', 'mcp', 'audit');
+  return join(homedir(), ".llamactl", "mcp", "audit");
 }
 
 function auditFilePath(dir: string, server: string, now: Date): string {
-  const y = now.getUTCFullYear();
-  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(now.getUTCDate()).padStart(2, '0');
+  const y = String(now.getUTCFullYear());
+  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(now.getUTCDate()).padStart(2, "0");
   return join(dir, `${server}-${y}-${m}-${d}.jsonl`);
 }
 
 export function appendAudit(opts: AuditOptions): AuditRecord {
-  const now = (opts.now ?? (() => new Date()))();
+  const now = (opts.now ?? ((): Date => new Date()))();
   const dir = opts.dir ?? defaultAuditDir();
   const record: AuditRecord = {
     ts: now.toISOString(),
@@ -66,7 +66,9 @@ export function appendAudit(opts: AuditOptions): AuditRecord {
     ...(opts.result !== undefined ? { result: opts.result } : {}),
   };
   const file = auditFilePath(dir, opts.server, now);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- file path built from the caller's server slug under an internal audit dir (defaultAuditDir or test-injected dir); not attacker-controlled at runtime.
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, `${JSON.stringify(record)}\n`, 'utf8');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- same internal audit-dir path as the mkdirSync above.
+  appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
   return record;
 }

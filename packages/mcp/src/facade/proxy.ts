@@ -18,15 +18,17 @@
 //   JSON-schema shape (types.d.ts:2381-2419), so we wrap args in a
 //   `z.looseObject({})` pass-through schema — this preserves every
 //   field through validation (default v4 `z.object` strips extras).
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
-import type { Downstream } from './downstream.js';
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+
+import { z } from "zod";
+
+import type { Downstream } from "./downstream.js";
 
 export interface ProxySkip {
   name: string;
   from: string;
-  reason: 'collision' | 'schema-invalid';
+  reason: "collision" | "schema-invalid";
 }
 
 export interface MountProxyResult {
@@ -54,7 +56,7 @@ export async function mountProxyTools(
     const { tools } = await client.listTools();
     for (const tool of tools) {
       if (taken.has(tool.name)) {
-        skipped.push({ name: tool.name, from: downstreamName, reason: 'collision' });
+        skipped.push({ name: tool.name, from: downstreamName, reason: "collision" });
         process.stderr.write(
           `nova-mcp: proxy: skipping "${tool.name}" from "${downstreamName}" (collision — first-wins)\n`,
         );
@@ -63,7 +65,7 @@ export async function mountProxyTools(
       server.registerTool(
         tool.name,
         {
-          description: tool.description ?? '',
+          description: tool.description ?? "",
           // Pass-through schema — see file header for why looseObject.
           inputSchema: z.looseObject({}),
         },
@@ -82,7 +84,7 @@ export async function mountProxyTools(
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             return {
-              content: [{ type: 'text', text: `downstream error: ${msg}` }],
+              content: [{ type: "text", text: `downstream error: ${msg}` }],
               isError: true,
             };
           }

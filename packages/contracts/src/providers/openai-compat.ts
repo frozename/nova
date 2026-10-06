@@ -1,19 +1,20 @@
-import type { AiProvider, ProviderExecutionContext } from '../provider.js';
-import type { ModelInfo } from '../schemas/models.js';
-import type { ProviderHealth } from '../schemas/health.js';
-import type { UnifiedAiRequest, UnifiedAiResponse } from '../schemas/chat.js';
-import type {
-  UnifiedEmbeddingRequest,
-  UnifiedEmbeddingResponse,
-} from '../schemas/embeddings.js';
-import type { UnifiedStreamEvent } from '../schemas/stream.js';
-import type { UsageKind, UsageObservationV1 } from '../schemas/usage.js';
+import { z } from "zod";
+
+import type { AiProvider, ProviderExecutionContext } from "../provider.js";
+import type { UnifiedAiRequest, UnifiedAiResponse } from "../schemas/chat.js";
+import type { UnifiedEmbeddingRequest, UnifiedEmbeddingResponse } from "../schemas/embeddings.js";
+import type { ProviderHealth } from "../schemas/health.js";
+import type { ModelInfo } from "../schemas/models.js";
+import type { UnifiedStreamEvent } from "../schemas/stream.js";
+import type { UsageKind, UsageObservationV1 } from "../schemas/usage.js";
+
+import { FinishReasonSchema } from "../schemas/chat.js";
 
 /**
  * Callback fired after a successful chat or embedding round-trip
  * with the provider's reported token counts. Consumers use this to
  * append a UsageRecord to their JSONL sink (llamactl's
- * @nova/mcp-shared.appendUsageBackground) without the adapter
+ * @novaproto/mcp-shared.appendUsageBackground) without the adapter
  * needing to know what storage the consumer uses.
  *
  * The record is minimal on purpose — the adapter has no opinion on
@@ -49,9 +50,7 @@ export interface OpenAICompatUsageObservation {
   attempt_id?: string;
 }
 
-export type OpenAICompatOnUsageObservation = (
-  snapshot: OpenAICompatUsageObservation,
-) => void;
+export type OpenAICompatOnUsageObservation = (snapshot: OpenAICompatUsageObservation) => void;
 
 /**
  * OpenAI-compatible provider adapter. Covers every upstream that
@@ -125,7 +124,7 @@ export interface OpenAICompatOptions {
 }
 
 function trimTrailingSlash(url: string): string {
-  return url.endsWith('/') ? url.slice(0, -1) : url;
+  return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
 /**
@@ -141,7 +140,7 @@ function contextSignal(context?: ProviderExecutionContext): AbortSignal | undefi
     const ms = context.deadline - Date.now();
     signals.push(
       ms <= 0
-        ? AbortSignal.abort(new DOMException('The operation timed out.', 'TimeoutError'))
+        ? AbortSignal.abort(new DOMException("The operation timed out.", "TimeoutError"))
         : AbortSignal.timeout(ms),
     );
   }
@@ -163,9 +162,9 @@ type WireUsage = {
  */
 function hasNumericUsageCount(usage: WireUsage): boolean {
   return (
-    typeof usage.prompt_tokens === 'number' ||
-    typeof usage.completion_tokens === 'number' ||
-    typeof usage.total_tokens === 'number'
+    typeof usage.prompt_tokens === "number" ||
+    typeof usage.completion_tokens === "number" ||
+    typeof usage.total_tokens === "number"
   );
 }
 
@@ -179,19 +178,15 @@ function toObservation(
   upstreamRequestId?: string,
 ): UsageObservationV1 {
   const id = upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {};
-  if (!usage) return { source: 'unknown', ...id };
-  if (!hasNumericUsageCount(usage)) return { source: 'unknown', ...id };
+  if (!usage) return { source: "unknown", ...id };
+  if (!hasNumericUsageCount(usage)) return { source: "unknown", ...id };
   return {
-    source: 'observed',
-    ...(typeof usage.prompt_tokens === 'number'
-      ? { input_tokens: usage.prompt_tokens }
-      : {}),
-    ...(typeof usage.completion_tokens === 'number'
+    source: "observed",
+    ...(typeof usage.prompt_tokens === "number" ? { input_tokens: usage.prompt_tokens } : {}),
+    ...(typeof usage.completion_tokens === "number"
       ? { output_tokens: usage.completion_tokens }
       : {}),
-    ...(typeof usage.total_tokens === 'number'
-      ? { total_tokens: usage.total_tokens }
-      : {}),
+    ...(typeof usage.total_tokens === "number" ? { total_tokens: usage.total_tokens } : {}),
     ...id,
   };
 }
@@ -204,15 +199,15 @@ function toObservation(
  */
 function isRetryableUpstreamCode(code: string): boolean {
   const c = code.trim().toLowerCase();
-  if (['429', '500', '502', '503', '504', '529'].includes(c)) return true;
+  if (["429", "500", "502", "503", "504", "529"].includes(c)) return true;
   return (
-    c.includes('rate_limit') ||
-    c.includes('ratelimit') ||
-    c.includes('overload') ||
-    c.includes('server_error') ||
-    c.includes('internal_error') ||
-    c.includes('unavailable') ||
-    c.includes('timeout')
+    c.includes("rate_limit") ||
+    c.includes("ratelimit") ||
+    c.includes("overload") ||
+    c.includes("server_error") ||
+    c.includes("internal_error") ||
+    c.includes("unavailable") ||
+    c.includes("timeout")
   );
 }
 
@@ -224,8 +219,8 @@ function isRetryableUpstreamCode(code: string): boolean {
  * upstreams emit them on healthy frames.
  */
 function isWireError(err: unknown): boolean {
-  if (typeof err === 'string') return err.length > 0;
-  if (typeof err !== 'object' || err === null || Array.isArray(err)) {
+  if (typeof err === "string") return err.length > 0;
+  if (typeof err !== "object" || err === null || Array.isArray(err)) {
     return false;
   }
   const e = err as { message?: unknown; type?: unknown; code?: unknown };
@@ -244,11 +239,11 @@ function wireErrorToEvent(err: unknown): {
 } {
   let message: string;
   let code: string | undefined;
-  if (typeof err === 'string') {
+  if (typeof err === "string") {
     message = err;
-  } else if (err !== null && typeof err === 'object') {
+  } else if (err !== null && typeof err === "object") {
     const e = err as { message?: unknown; code?: unknown; type?: unknown };
-    message = typeof e.message === 'string' ? e.message : JSON.stringify(err);
+    message = typeof e.message === "string" ? e.message : JSON.stringify(err);
     const rawCode = e.code ?? e.type;
     if (rawCode !== null && rawCode !== undefined) code = String(rawCode);
   } else {
@@ -261,19 +256,80 @@ function wireErrorToEvent(err: unknown): {
   };
 }
 
+/**
+ * Merge the adapter's base headers (content-type, auth, extraHeaders) with a
+ * per-request `init.headers`, letting the caller's headers win on a
+ * case-insensitive collision. Routing both sides through `Headers` keeps the
+ * merge correct regardless of whether the caller passed a plain record, a
+ * `Headers` instance, or a `[name, value]` tuple array — the three HeadersInit
+ * shapes. Exported for direct testing; the `AiProvider` surface is unchanged.
+ *
+ * `initHeaders` is typed as `RequestInit["headers"]` (the node-provided type)
+ * rather than the DOM-only `HeadersInit`, which is absent from this project's
+ * `ES2023` lib and degrades to `any` under the strict gate.
+ */
+export function mergeRequestHeaders(
+  baseHeaders: Record<string, string>,
+  initHeaders: RequestInit["headers"],
+): Headers {
+  const merged = new Headers(baseHeaders);
+  if (initHeaders) {
+    for (const [k, v] of new Headers(initHeaders).entries()) {
+      merged.set(k, v);
+    }
+  }
+  return merged;
+}
+
+/** Finish-reason variant of {@link UnifiedStreamEvent}'s `done` arm. */
+type StreamFinishReason = Extract<UnifiedStreamEvent, { type: "done" }>["finish_reason"];
+
+/**
+ * Map an upstream finish_reason string onto the canonical
+ * {@link FinishReasonSchema} enum, self-auditing against the schema's own
+ * options so a new variant can never silently pass through as an unchecked
+ * cast. Unknown / absent reasons collapse to "stop" (the safe terminal).
+ */
+function mapFinishReason(finish: string | null | undefined): StreamFinishReason {
+  return (FinishReasonSchema.options as readonly string[]).includes(finish ?? "")
+    ? (finish as StreamFinishReason)
+    : "stop";
+}
+
+/**
+ * Validation envelope for the non-streaming `.json()` boundary. The
+ * id, model name and token-usage block are the only fields the adapter
+ * reads for telemetry; everything else passes through untouched so the
+ * returned body keeps its full shape. A parse failure means the usage
+ * snapshot is skipped (malformed-response path) rather than fired with
+ * garbage numbers.
+ */
+const UsageBlockSchema = z.looseObject({
+  prompt_tokens: z.number().optional(),
+  completion_tokens: z.number().optional(),
+  total_tokens: z.number().optional(),
+});
+
+const ResponseEnvelopeSchema = z.looseObject({
+  id: z.string().optional(),
+  model: z.string().optional(),
+  usage: UsageBlockSchema.optional(),
+});
+
 export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvider {
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const base = trimTrailingSlash(opts.baseUrl);
   const headers = (): Record<string, string> => ({
-    'content-type': 'application/json',
+    "content-type": "application/json",
     authorization: `Bearer ${opts.apiKey}`,
     ...(opts.extraHeaders ?? {}),
   });
 
   async function call(path: string, init: RequestInit): Promise<Response> {
-    return fetchImpl(`${base}${path}`, {
+    const merged = mergeRequestHeaders(headers(), init.headers);
+    return await fetchImpl(`${base}${path}`, {
       ...init,
-      headers: { ...headers(), ...((init.headers as Record<string, string>) ?? {}) },
+      headers: merged,
     });
   }
 
@@ -319,34 +375,46 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       const { capabilities: _c, providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}) };
       const signal = contextSignal(context);
-      const res = await call('/chat/completions', {
-        method: 'POST',
+      const res = await call("/chat/completions", {
+        method: "POST",
         body: JSON.stringify({ ...body, stream: false }),
         ...(signal ? { signal } : {}),
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`${opts.name} ${res.status}: ${text.slice(0, 500)}`);
+        const text = await res.text().catch(() => "");
+        throw new Error(`${opts.name} ${String(res.status)}: ${text.slice(0, 500)}`);
       }
-      const raw = (await res.json()) as UnifiedAiResponse;
+      const parsed = ResponseEnvelopeSchema.safeParse(await res.json());
       const latencyMs = Date.now() - startedAt;
-      if (raw.usage) {
+      // Validate the .json() boundary instead of casting it. On a malformed
+      // envelope the legacy usage snapshot is skipped and the observation
+      // records unknown usage, but the body is still returned — the caller's
+      // response schema is the next gate.
+      const raw = (parsed.success ? parsed.data : {}) as UnifiedAiResponse;
+      const envelope = parsed.success ? parsed.data : undefined;
+      const usage = envelope?.usage;
+      const model = envelope?.model ?? request.model;
+      if (
+        usage?.prompt_tokens !== undefined &&
+        usage.completion_tokens !== undefined &&
+        usage.total_tokens !== undefined
+      ) {
         fireUsage({
           provider: opts.name,
-          model: raw.model ?? request.model,
-          kind: 'chat',
-          prompt_tokens: raw.usage.prompt_tokens,
-          completion_tokens: raw.usage.completion_tokens,
-          total_tokens: raw.usage.total_tokens,
+          model,
+          kind: "chat",
+          prompt_tokens: usage.prompt_tokens,
+          completion_tokens: usage.completion_tokens,
+          total_tokens: usage.total_tokens,
           latency_ms: latencyMs,
         });
       }
       fireObservation({
         provider: opts.name,
-        model: raw.model ?? request.model,
-        kind: 'chat',
+        model,
+        kind: "chat",
         latency_ms: latencyMs,
-        observation: toObservation(raw.usage, raw.id || undefined),
+        observation: toObservation(usage, envelope?.id || undefined),
         ...contextIdentity(context),
       });
       return {
@@ -366,9 +434,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       // upstream request down — cancelling the body reader alone
       // doesn't propagate to the server.
       const teardown = new AbortController();
-      const fetchSignal = signal
-        ? AbortSignal.any([signal, teardown.signal])
-        : teardown.signal;
+      const fetchSignal = signal ? AbortSignal.any([signal, teardown.signal]) : teardown.signal;
       // A caller abort throws no matter when it lands — the caller's
       // own signal (not the merged fetch signal) is checked before
       // every read and around every yield, so an abort delivered
@@ -376,23 +442,23 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       // reason instead of letting a buffered event (or done) through.
       const throwIfCallerAborted = (): void => {
         if (signal?.aborted) {
-          throw signal.reason ?? new DOMException('This operation was aborted', 'AbortError');
+          throw signal.reason ?? new DOMException("This operation was aborted", "AbortError");
         }
       };
       const startedAt = Date.now();
-      const res = await call('/chat/completions', {
-        method: 'POST',
+      const res = await call("/chat/completions", {
+        method: "POST",
         body: JSON.stringify(body),
         signal: fetchSignal,
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
+        const text = await res.text().catch(() => "");
         try {
           throwIfCallerAborted();
           yield {
-            type: 'error',
+            type: "error",
             error: {
-              message: `${opts.name} ${res.status}: ${text.slice(0, 500)}`,
+              message: `${opts.name} ${String(res.status)}: ${text.slice(0, 500)}`,
               code: String(res.status),
               retryable: res.status >= 500 || res.status === 429,
             },
@@ -403,12 +469,12 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         }
         return;
       }
-      type DoneEvent = Extract<UnifiedStreamEvent, { type: 'done' }>;
-      let lastFinish: DoneEvent = { type: 'done', finish_reason: 'stop' };
+      type DoneEvent = Extract<UnifiedStreamEvent, { type: "done" }>;
+      let lastFinish: DoneEvent = { type: "done", finish_reason: "stop" };
       let sawFinish = false;
       let lastUsage: WireUsage | undefined;
       let lastModel = request.model;
-      let lastId = '';
+      let lastId = "";
       // Exactly one observation per attempt that reached the upstream,
       // fired from the cleanup path so every termination — [DONE],
       // EOF, error frame, consumer break, caller abort — produces
@@ -422,7 +488,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         fireObservation({
           provider: opts.name,
           model: lastModel,
-          kind: 'chat',
+          kind: "chat",
           latency_ms: Date.now() - startedAt,
           observation: toObservation(lastUsage, lastId || undefined),
         });
@@ -430,7 +496,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       if (!res.body) {
         try {
           throwIfCallerAborted();
-          yield { type: 'done', finish_reason: 'stop', completion: 'eof' };
+          yield { type: "done", finish_reason: "stop", completion: "eof" };
           throwIfCallerAborted();
         } finally {
           fireStreamObservation();
@@ -440,33 +506,33 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
+      let buffer = "";
       type FrameOutcome = {
         events: UnifiedStreamEvent[];
-        terminal?: 'done' | 'error';
+        terminal?: "done" | "error";
       };
       const handlePayload = (payload: string): FrameOutcome => {
-        if (payload === '[DONE]') return { events: [], terminal: 'done' };
+        if (payload === "[DONE]") return { events: [], terminal: "done" };
         try {
           const chunk = JSON.parse(payload) as {
             id?: string;
             object?: string;
             model?: string;
             created?: number;
-            choices?: Array<{
+            choices?: {
               index?: number;
               delta?: {
-                role?: 'assistant' | 'tool';
+                role?: "assistant" | "tool";
                 content?: string | null;
-                tool_calls?: Array<{
+                tool_calls?: {
                   index: number;
                   id?: string;
-                  type?: 'function';
+                  type?: "function";
                   function?: { name?: string; arguments?: string };
-                }>;
+                }[];
               };
               finish_reason?: string | null;
-            }>;
+            }[];
             usage?: WireUsage;
             error?: unknown;
           };
@@ -485,7 +551,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
             fireUsage({
               provider: opts.name,
               model: lastModel,
-              kind: 'chat',
+              kind: "chat",
               prompt_tokens: chunk.usage.prompt_tokens ?? 0,
               completion_tokens: chunk.usage.completion_tokens ?? 0,
               total_tokens: chunk.usage.total_tokens ?? 0,
@@ -497,15 +563,15 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
             if (finish) {
               sawFinish = true;
               lastFinish = {
-                type: 'done',
-                finish_reason: finish as DoneEvent['finish_reason'],
+                type: "done",
+                finish_reason: mapFinishReason(finish),
               };
             }
             events.push({
-              type: 'chunk',
+              type: "chunk",
               chunk: {
-                id: chunk.id ?? '',
-                object: 'chat.completion.chunk',
+                id: chunk.id ?? "",
+                object: "chat.completion.chunk",
                 model: chunk.model ?? request.model,
                 created: chunk.created ?? Math.floor(Date.now() / 1000),
                 choices: chunk.choices.map((c) => ({
@@ -516,7 +582,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
                     ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
                   },
                   ...(c.finish_reason !== undefined
-                    ? { finish_reason: c.finish_reason as DoneEvent['finish_reason'] }
+                    ? { finish_reason: mapFinishReason(c.finish_reason) }
                     : {}),
                 })),
               },
@@ -527,8 +593,8 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
           // carried, then the stream ends with no done event,
           // mirroring the !res.ok path.
           if (isWireError(chunk.error)) {
-            events.push({ type: 'error', error: wireErrorToEvent(chunk.error) });
-            return { events, terminal: 'error' };
+            events.push({ type: "error", error: wireErrorToEvent(chunk.error) });
+            return { events, terminal: "error" };
           }
           return { events };
         } catch {
@@ -538,7 +604,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       };
       const handleFrame = (frame: string): FrameOutcome => {
         const f = frame.trim();
-        if (!f.startsWith('data:')) return { events: [] };
+        if (!f.startsWith("data:")) return { events: [] };
         return handlePayload(f.slice(5).trim());
       };
       try {
@@ -558,13 +624,11 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
           // On EOF the decoder is final-flushed (no `stream` flag) so
           // a split multi-byte sequence isn't dropped; the residual
           // buffer is then processed line-wise below.
-          buffer += read.done
-            ? decoder.decode()
-            : decoder.decode(read.value, { stream: true });
+          buffer += read.done ? decoder.decode() : decoder.decode(read.value, { stream: true });
           // OpenAI SSE frames are separated by blank lines; each frame
           // is a `data: {...}` line (plus `event:` in some dialects).
           let nl: number;
-          while ((nl = buffer.indexOf('\n\n')) !== -1) {
+          while ((nl = buffer.indexOf("\n\n")) !== -1) {
             const frame = buffer.slice(0, nl);
             buffer = buffer.slice(nl + 2);
             const outcome = handleFrame(frame);
@@ -573,39 +637,39 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
               yield ev;
               throwIfCallerAborted();
             }
-            if (outcome.terminal === 'done') {
-              yield { ...lastFinish, completion: 'upstream' };
+            if (outcome.terminal === "done") {
+              yield { ...lastFinish, completion: "upstream" };
               throwIfCallerAborted();
               return;
             }
-            if (outcome.terminal === 'error') return;
+            if (outcome.terminal === "error") return;
           }
           if (eof && buffer.trim().length > 0) {
             // The transport closed without a final blank line — any
             // complete `data:` line still buffered is a real frame
             // (e.g. a trailing `data: [DONE]`).
             const residual = buffer;
-            buffer = '';
-            for (const line of residual.split('\n')) {
+            buffer = "";
+            for (const line of residual.split("\n")) {
               const outcome = handleFrame(line);
               throwIfCallerAborted();
               for (const ev of outcome.events) {
                 yield ev;
                 throwIfCallerAborted();
               }
-              if (outcome.terminal === 'done') {
-                yield { ...lastFinish, completion: 'upstream' };
+              if (outcome.terminal === "done") {
+                yield { ...lastFinish, completion: "upstream" };
                 throwIfCallerAborted();
                 return;
               }
-              if (outcome.terminal === 'error') return;
+              if (outcome.terminal === "error") return;
             }
           }
         }
         throwIfCallerAborted();
         yield {
           ...lastFinish,
-          completion: sawFinish ? 'upstream' : 'eof',
+          completion: sawFinish ? "upstream" : "eof",
         };
         throwIfCallerAborted();
       } finally {
@@ -628,36 +692,39 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       const { providerOptions: _p, ...wireBody } = request;
       const body = { ...wireBody, ...(_p ?? {}) };
       const signal = contextSignal(context);
-      const res = await call('/embeddings', {
-        method: 'POST',
+      const res = await call("/embeddings", {
+        method: "POST",
         body: JSON.stringify(body),
         ...(signal ? { signal } : {}),
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`${opts.name} ${res.status}: ${text.slice(0, 500)}`);
+        const text = await res.text().catch(() => "");
+        throw new Error(`${opts.name} ${String(res.status)}: ${text.slice(0, 500)}`);
       }
-      const raw = (await res.json()) as UnifiedEmbeddingResponse & {
-        usage?: { prompt_tokens?: number; total_tokens?: number };
-      };
+      const parsed = ResponseEnvelopeSchema.safeParse(await res.json());
       const latencyMs = Date.now() - startedAt;
-      if (raw.usage) {
+      // Same validate-not-cast boundary as createResponse.
+      const raw = (parsed.success ? parsed.data : {}) as UnifiedEmbeddingResponse;
+      const envelope = parsed.success ? parsed.data : undefined;
+      const usage = envelope?.usage;
+      const model = envelope?.model ?? request.model;
+      if (usage) {
         fireUsage({
           provider: opts.name,
-          model: raw.model ?? request.model,
-          kind: 'embedding',
-          prompt_tokens: raw.usage.prompt_tokens ?? 0,
+          model,
+          kind: "embedding",
+          prompt_tokens: usage.prompt_tokens ?? 0,
           completion_tokens: 0,
-          total_tokens: raw.usage.total_tokens ?? raw.usage.prompt_tokens ?? 0,
+          total_tokens: usage.total_tokens ?? usage.prompt_tokens ?? 0,
           latency_ms: latencyMs,
         });
       }
       fireObservation({
         provider: opts.name,
-        model: raw.model ?? request.model,
-        kind: 'embedding',
+        model,
+        kind: "embedding",
         latency_ms: latencyMs,
-        observation: toObservation(raw.usage, undefined),
+        observation: toObservation(usage, undefined),
         ...contextIdentity(context),
       });
       return {
@@ -668,44 +735,46 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
     },
 
     async listModels(): Promise<ModelInfo[]> {
-      const res = await call('/models', { method: 'GET' });
+      const res = await call("/models", { method: "GET" });
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`${opts.name} /models ${res.status}: ${text.slice(0, 500)}`);
+        const text = await res.text().catch(() => "");
+        throw new Error(`${opts.name} /models ${String(res.status)}: ${text.slice(0, 500)}`);
       }
-      const raw = (await res.json()) as { data?: Array<{ id?: string; created?: number; owned_by?: string }> };
+      const raw = (await res.json()) as {
+        data?: { id?: string; created?: number; owned_by?: string }[];
+      };
       const now = Math.floor(Date.now() / 1000);
       return (raw.data ?? []).map((m) => ({
-        id: String(m.id ?? ''),
-        object: 'model' as const,
+        id: String(m.id ?? ""),
+        object: "model" as const,
         created: m.created ?? now,
         owned_by: m.owned_by ?? opts.name,
-        capabilities: ['chat' as const],
+        capabilities: ["chat" as const],
       }));
     },
 
     async healthCheck(): Promise<ProviderHealth> {
       const startedAt = Date.now();
-      const probePath = opts.healthPath ?? '/models';
+      const probePath = opts.healthPath ?? "/models";
       try {
-        const res = await call(probePath, { method: 'GET' });
+        const res = await call(probePath, { method: "GET" });
         const latencyMs = Date.now() - startedAt;
         if (!res.ok) {
           return {
-            state: res.status >= 500 ? 'unhealthy' : 'degraded',
+            state: res.status >= 500 ? "unhealthy" : "degraded",
             lastChecked: new Date().toISOString(),
             latencyMs,
-            error: `HTTP ${res.status}`,
+            error: `HTTP ${String(res.status)}`,
           };
         }
         return {
-          state: 'healthy',
+          state: "healthy",
           lastChecked: new Date().toISOString(),
           latencyMs,
         };
       } catch (err) {
         return {
-          state: 'unhealthy',
+          state: "unhealthy",
           lastChecked: new Date().toISOString(),
           error: (err as Error).message,
         };

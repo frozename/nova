@@ -1,23 +1,34 @@
 {
-  "name": "@nova/mcp",
+  "name": "@novaproto/mcp",
   "version": "0.1.0",
   "description": "Unified MCP facade — roll-up tools across llamactl, sirius-gateway, and embersynth. Operator's single entry point.",
+  "license": "MIT",
   "type": "module",
-  "main": "./src/index.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frozename/nova.git",
+    "directory": "packages/mcp"
+  },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
   },
   "bin": {
-    "nova-mcp": "./bin/nova-mcp.ts"
+    "nova-mcp": "./dist/bin/nova-mcp.js"
   },
   "scripts": {
+    "build": "tsc --build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
-    "@nova/contracts": "file:../contracts",
-    "@nova/mcp-shared": "file:../mcp-shared",
+    "@novaproto/contracts": "workspace:*",
+    "@novaproto/mcp-shared": "workspace:*",
     "yaml": "^2.7.0",
     "zod": "^4.3.6"
   },
@@ -27,8 +38,11 @@
     "typescript": "^5.9.3"
   },
   "files": [
-    "src",
-    "bin",
+    "dist/src",
+    "dist/bin",
     "README.md"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

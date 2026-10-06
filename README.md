@@ -1,262 +1,341 @@
 # Nova
 
-An AI provider SDK + MCP server scaffolding. One canonical vocabulary
-for chat, embeddings, models, streams, health, and usage — plus the
-adapter factories and MCP helpers everyone needs when building an AI
-gateway, agentic harness, or operator surface.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![npm @novaproto/contracts](https://img.shields.io/npm/v/@novaproto/contracts.svg?label=%40novaproto%2Fcontracts)](https://www.npmjs.com/package/@novaproto/contracts)
+[![npm @novaproto/mcp-shared](https://img.shields.io/npm/v/@novaproto/mcp-shared.svg?label=%40novaproto%2Fmcp-shared)](https://www.npmjs.com/package/@novaproto/mcp-shared)
+[![npm @novaproto/mcp](https://img.shields.io/npm/v/@novaproto/mcp.svg?label=%40novaproto%2Fmcp)](https://www.npmjs.com/package/@novaproto/mcp)
+[![TypeScript: strict](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)](./tsconfig.base.json)
+[![runtime: Node-portable](https://img.shields.io/badge/runtime-Node--portable-339933.svg)](https://nodejs.org)
 
-Nova stays transport-agnostic and runtime-agnostic: Zod schemas,
-TypeScript interfaces, and a handful of pure helpers. No opinions
-about how you serve, route, bill, or observe requests — just the
-contracts every layer of that stack has to speak.
+**One vocabulary for every AI provider. Schemas, adapters, and MCP scaffolding for the gateway you're already building.**
 
-## Packages
+_The contracts every layer of an AI stack has to speak — chat, embeddings, models, streaming, health, usage, and pricing — written once, as Zod-validated types, plus a battle-tested OpenAI-compatible adapter factory and the MCP operator scaffolding everything else re-derives._
 
-| Package | Role |
-|---|---|
-| `@nova/contracts` | Canonical AI-provider contracts. Chat, embeddings, models, health, stream, usage schemas. `AiProvider` interface. Factory for OpenAI-compat adapters that covers chat + embeddings + streaming (content + tool-call deltas) out of the box. |
-| `@nova/mcp-shared` | Cross-cutting helpers for MCP servers that expose operator surfaces — audit sink, content envelope helper, usage-record sink + reader. Transport-agnostic; plug into any MCP server. |
-| `@nova/mcp` | Unified operator MCP server — roll-up tools over sibling YAML configs + usage JSONL, plus `nova.operator.plan`, the LLM-backed intent-to-plan translator. Optional; a reference consumer of the two layers above. |
+---
+
+## What it is
+
+Nova is the shared contract layer for multi-provider AI systems. It gives you one canonical, Zod-validated vocabulary for the shapes that cross every process boundary in an AI stack — chat requests and responses, streaming events, embeddings, model catalogs, provider health, usage records, and pricing — plus:
+
+- a **provider factory** that turns any OpenAI-compatible endpoint into a typed `AiProvider` (chat, streaming, embeddings, model listing, health probing), and
+- **MCP server scaffolding** — audit and usage sinks, a content-envelope helper, a pricing/cost layer, and a unified operator facade with a planner.
+
+Implement `AiProvider` once; route, bill, observe, and proxy everywhere. Nova has no opinion about how you serve, route, or fail over — it ships the contracts, not the orchestrator.
+
+Four packages, MIT-licensed, ESM (`"type": "module"`). `@novaproto/contracts`, `@novaproto/mcp-shared` and `@novaproto/mcp` are live on npm at **0.1.0** (the tree carries `@novaproto/contracts` **0.2.0**, not yet released); `@novaproto/exec-primitives` is live at **0.1.0** and released by its own workflow:
+
+| Package                      | Role                                                                                                                                                                                                                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@novaproto/contracts`       | The SDK core. Zod schemas for chat / embeddings / models / health / stream / usage / pricing / retrieval, the `AiProvider` interface, and `createOpenAICompatProvider`. Zero runtime deps beyond `zod`.                                                                                                      |
+| `@novaproto/mcp-shared`      | Cross-cutting helpers for MCP servers — audit sink, content envelope, usage sink + reader, pricing loader + cost estimation. Transport-agnostic; plug into any MCP server.                                                                                                                                   |
+| `@novaproto/mcp`             | Unified operator MCP facade — roll-up tools over sibling operator YAMLs + usage JSONL, a 1:1 downstream proxy, and `nova.operator.plan`, an intent-to-plan translator. A reference consumer of the two layers above.                                                                                         |
 | `@novaproto/exec-primitives` | Host-configured execution primitives for running agent processes — process-group supervision, stdio ACP transport and permission handling, a warm-process pool, ACP session bootstrap. No runtime dependencies; built to `dist/` and published to npm. See [its README](packages/exec-primitives/README.md). |
 
 ## Why
 
-Pick any AI-gateway-ish problem — routing requests across providers,
-logging usage, fronting OpenAI-compat to a bespoke backend, writing
-an MCP tool that queries model health, teaching an LLM to fill out
-an operator runbook. Each one re-derives the same primitives:
+Pick any AI-gateway-ish problem — routing requests across providers, logging usage, fronting OpenAI-compat to a bespoke backend, writing an MCP tool that queries model health, teaching an LLM to fill out an operator runbook. Each one re-derives the same primitives:
 
 - "What do a chat request and response look like on the wire?"
-- "How do I stream content + tool calls?"
-- "What shape is usage data in?"
-- "How do I expose this surface through MCP without re-inventing
-  audit and content envelopes?"
+- "How do I stream content **and** tool calls?"
+- "What shape is usage data in, and how do I price it?"
+- "How do I expose this surface through MCP without re-inventing audit and content envelopes?"
 
-Nova answers those once. Adapter fixes land in one place; schema
-changes propagate on `bun install`.
+Nova answers those once. **Adapter fixes land in one place**; schema changes propagate on the next install. The design rule is strict: _Nova does not know about its consumers_ — it depends on nothing downstream, so the dependency arrow only ever points toward it.
 
-## `@nova/contracts` — the SDK core
+## How it fits together
 
-Every type that crosses a process boundary:
+```mermaid
+flowchart TB
+  subgraph consumers["Reference consumers"]
+    llamactl["llamactl<br/>(control plane)"]
+    sirius["sirius-gateway<br/>(multi-provider gateway)"]
+    ember["embersynth<br/>(capability router)"]
+  end
 
-- **Chat** — `ChatRequestSchema`, `ChatResponseSchema`,
-  `StreamEventSchema`. Content blocks, tool calls, role / finish
-  reason enums, tool-call delta preservation in streaming.
-- **Embeddings** — `EmbeddingRequestSchema`,
-  `EmbeddingResponseSchema`. Single + batch inputs.
-- **Models** — `ModelInfoSchema` for `/v1/models`-shaped listings.
-- **Health** — `ProviderHealthSchema`.
-- **Usage** — `UsageRecordSchema`: ts, provider, model, kind,
-  prompt/completion/total tokens, latency, optional request_id +
-  estimated_cost_usd + user + route.
-- **AiProvider** interface — `createResponse`, `streamResponse`,
-  `createEmbeddings`, `healthCheck`, `listModels`. Implement once,
-  plug into anything that speaks Nova.
+  subgraph nova["Nova packages"]
+    mcp["@novaproto/mcp<br/>operator facade + planner"]
+    shared["@novaproto/mcp-shared<br/>audit + usage + pricing sinks"]
+    contracts["@novaproto/contracts<br/>schemas + AiProvider + openai-compat factory"]
+  end
 
-`createOpenAICompatProvider({ name, baseUrl, apiKeyRef?, healthPath? })`
-produces a full `AiProvider` for any OpenAI-compatible endpoint:
-chat (streaming + non-streaming), embeddings, tool calls, finish-
-reason mapping, model listing, `GET /models` or custom `healthPath`
-probing. Used by every consumer in the family.
+  subgraph upstream["OpenAI-compatible endpoints"]
+    apis["OpenAI / Together / groq /<br/>Mistral / local llama.cpp"]
+  end
 
-## `@nova/mcp-shared` — MCP server scaffolding
+  llamactl --> contracts
+  llamactl --> shared
+  llamactl --> mcp
+  sirius --> contracts
+  ember --> contracts
 
-Thin utilities every MCP server wants:
+  mcp --> shared
+  shared --> contracts
+  contracts -->|"/chat/completions, /embeddings, /models"| apis
 
-- `appendAudit({ server, tool, input, result? })` — JSONL audit sink
-  at `~/.llamactl/mcp/audit/<server>-<YYYY-MM-DD>.jsonl`. Every
-  mutation tool records one line per invocation.
-- `toTextContent(payload)` — wraps a JSON payload in the MCP `{
-  content: [{ type: 'text', text }] }` envelope. Keeps the
-  JSON.stringify detail out of each tool handler.
-- `appendUsage` / `appendUsageBackground` — UsageRecord writer with
-  the same rotation semantics as the audit sink. Fire-and-forget
-  variant for hot paths.
-- `readUsage({ since, until, provider, dir })` — batch reader over
-  the JSONL corpus with day-boundary pre-filtering + torn-write
-  tolerance. Consumed by cost aggregators.
-
-Drop into any MCP server (your own, or `@nova/mcp`) without pulling
-framework dependencies.
-
-## `@nova/mcp` — unified operator MCP facade
-
-Optional but useful: a stdio MCP server that rolls up the YAMLs a
-multi-provider AI deployment typically writes and surfaces them
-through a single MCP endpoint.
-
-| Tool | Purpose |
-|---|---|
-| `nova.ops.overview` | Unified snapshot — agents + gateways + providers + profiles + synthetic models. Reads sibling operator YAMLs when present. |
-| `nova.ops.healthcheck` | GET-probe every gateway + provider `baseUrl`; fails soft per probe. |
-| `nova.ops.cost.snapshot` | Aggregates recorded usage JSONL over the last N days into per-provider + per-(provider, model) roll-ups. |
-| `nova.operator.plan` | Translate a natural-language operator goal into a validated PlanSchema sequence of MCP tool calls. Default executor is a canned stub; bind your own LLM executor for real planning. |
-
-### Planner (`nova.operator.plan`)
-
-Four pure pieces:
-
-- **Schema** — `PlanSchema` (20-step hard cap, required per-step
-  annotations, top-level reasoning), `PlannerToolDescriptor`,
-  `ToolSafetyTier`.
-- **Allowlist** — `filterTools()` + `DEFAULT_ALLOWLIST`. Glob-aware
-  (`myservice.*`), deny wins over allow, destructive tier requires
-  explicit opt-in, bare `*` never auto-grants destructive. Fail-
-  closed on empty allow.
-- **Prompt** — `buildPlannerPrompt({ tools, context, goal })` emits
-  deterministic system + user messages and an OAI-compatible
-  `submit_plan` function schema.
-- **Executor** — `PlannerExecutor` interface + canned
-  `stubPlannerExecutor` + `runPlanner()` composer (allowlist →
-  prompt → executor → `PlanSchema.safeParse`, discriminated result).
-
-Every piece is pure + unit-tested; the MCP tool handler is the thin
-audit/envelope layer.
-
-## Consuming Nova
-
-Until a registry publish lands, consumers depend on Nova via local
-file paths. Typical layout:
-
+  classDef harness fill:#1f2937,stroke:#4b5563,color:#f9fafb
+  classDef pkg fill:#0f3d3e,stroke:#2dd4bf,color:#ecfeff
+  classDef store fill:#3b2f1e,stroke:#d97706,color:#fffbeb
+  class llamactl,sirius,ember harness
+  class mcp,shared,contracts pkg
+  class apis store
 ```
-~/dev/
-├── nova/
-├── my-gateway/
-├── my-agent/
-└── ...
+
+`@novaproto/contracts` is the leaf — the only package with no internal Nova dependency. Everything else, including the reference consumers, depends inward. For the MCP facade's runtime topology (proxy + downstream boot + storage layout), see [the facade deep-dive in `AGENTS.md`](./AGENTS.md).
+
+---
+
+## `@novaproto/contracts` — the SDK core
+
+Zero runtime dependencies beyond `zod`. Every type that crosses a process boundary, as a Zod schema with an inferred TypeScript type:
+
+- **Chat wire types** — `UnifiedAiRequestSchema` / `UnifiedAiResponseSchema` (+ inferred `UnifiedAiRequest` / `UnifiedAiResponse`), `ChatMessageSchema`, `ContentBlockSchema` (a discriminated union of `TextBlockSchema`, `ImageBlockSchema`, `InputAudioBlockSchema`), `ToolSchema`, `ToolCallSchema`, `ToolCallDeltaSchema`, `ToolChoiceSchema`, `ResponseFormatSchema` (`text` / `json_object` / `json_schema`), `RoleSchema` (`system | user | assistant | tool | developer`), `FinishReasonSchema` (`stop | length | tool_calls | content_filter | error`), and `UsageSchema`.
+- **Streaming events** — `UnifiedStreamEventSchema`, a discriminated union over `chunk` / `tool_call` / `error` / `done`, with `UnifiedStreamChunkSchema`, `StreamChoiceSchema`, and `StreamDeltaSchema` preserving tool-call deltas frame by frame.
+- **Embeddings** — `UnifiedEmbeddingRequestSchema` / `UnifiedEmbeddingResponseSchema` and `EmbeddingRowSchema`. Input is a string | array | token-array union, with `encoding_format` and `dimensions`.
+- **Models catalog** — `ModelInfoSchema`, `ModelListResponseSchema`, `ModelCapabilitySchema` (`chat | embeddings | reasoning | vision | audio | tools | json_mode | structured_output | long_context | code`), and `ModelCostSchema`.
+- **Health** — `ProviderHealthSchema` and `ProviderHealthStateSchema` (`healthy | degraded | unhealthy | unknown`).
+- **Usage record** — `UsageRecordSchema` (ts, provider, model, kind, prompt/completion/total tokens, latency, optional `request_id` / `estimated_cost_usd` / `user` / `route`), `UsageKindSchema` (`chat | embedding | responses`), and `MinimalUsageInput`. Privacy lock by design: it records **counts, not content**.
+- **Pricing** — `ModelPricingSchema`, `ProviderPricingSchema`, and `PricingCatalog` (a `Map<string, ProviderPricing>`).
+- **Retrieval (RAG)** — `SearchRequest` / `SearchResponse`, `StoreRequest` / `StoreResponse`, `DeleteRequest` / `DeleteResponse`, `ListCollectionsResponse`, `DocumentSchema`, `SearchResultSchema`, `CollectionInfoSchema`. Scores are cosine similarity normalized to `0..1`.
+- **Runtime abstractions** (TypeScript interfaces, not Zod) — `AiProvider` (`createResponse`, optional `streamResponse`, `createEmbeddings`, `listModels`, `healthCheck`), `RetrievalProvider`, `ProviderFactory` / `ProviderFactoryInput`, and `ProviderRegistry`.
+
+### The OpenAI-compat adapter factory
+
+`createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvider` turns any endpoint that speaks the OpenAI REST dialect — OpenAI itself, Together, groq, Mistral, a self-hosted llama-server — into a full `AiProvider`. Options:
+
+| Field          | Required | Notes                                                                        |
+| -------------- | -------- | ---------------------------------------------------------------------------- |
+| `name`         | yes      | Provider name used in metadata + telemetry labels.                           |
+| `baseUrl`      | yes      | e.g. `https://api.openai.com/v1`. Trailing slash tolerated.                  |
+| `apiKey`       | yes      | Bearer token, sent as `Authorization: Bearer <key>`.                         |
+| `displayName`  | no       | Human-friendly label.                                                        |
+| `fetch`        | no       | `fetch` override for tests or runtime-specific TLS pinning.                  |
+| `extraHeaders` | no       | Headers merged into every request (e.g. `OpenAI-Organization`).              |
+| `healthPath`   | no       | Endpoint probed by `healthCheck`. Defaults to `/models`.                     |
+| `onUsage`      | no       | Callback fired after each successful call (see usage logging example below). |
+
+The factory covers non-streaming and SSE streaming (content **and** tool-call deltas), embeddings, `listModels`, and `healthCheck`; it fires `onUsage` after each successful call, and strips Nova-only `capabilities` / `providerOptions` before anything goes on the wire. It also exports the helpers `mergeRequestHeaders`, and the types `OpenAICompatUsageSnapshot` and `OpenAICompatOnUsage`. It is kept deliberately thin — no retry loop, no failover, no logging; those belong to the orchestrator that composes providers.
+
+## `@novaproto/mcp-shared` — MCP server scaffolding
+
+Depends on `@novaproto/contracts` and `yaml`. Thin utilities every MCP server wants:
+
+- **Audit sink** — `appendAudit(opts: AuditOptions): AuditRecord` writes one JSONL line per invocation to `~/.llamactl/mcp/audit/<server>-<YYYY-MM-DD>.jsonl` (override with `LLAMACTL_MCP_AUDIT_DIR`). `defaultAuditDir(env?)` resolves the directory; types `AuditRecord` / `AuditOptions`.
+- **Content envelope** — `toTextContent(payload): TextContentEnvelope` wraps a payload in the MCP `{ content: [{ type: 'text', text }] }` shape, keeping the `JSON.stringify` detail out of each handler.
+- **Usage sink** — `appendUsage(opts): string` returns the file path it wrote (and **throws** if `record.provider` is missing); `appendUsageBackground(opts): void` is the fire-and-forget variant that swallows errors on hot paths. JSONL lands at `~/.llamactl/usage/<provider>-<YYYY-MM-DD>.jsonl` (override with `LLAMACTL_USAGE_DIR` or `DEV_STORAGE`). `defaultUsageDir(env?)`; type `UsageWriteOptions`.
+- **Usage reader** — `readUsage(opts?): UsageReadResult` returns `{ records, filesScanned, malformedLines }`, with a day-boundary pre-filter and torn-write tolerance. Types `UsageReadOptions` (`dir` / `since` / `until` / `provider`) and `UsageReadResult`.
+- **Pricing + cost** — `loadPricing(opts?): LoadPricingResult`, `estimateCostUsd(record, catalog): number | undefined`, `computeCost(pricing, promptTokens, completionTokens): number`, `findModelPricing(provider, model, catalog)`, and `defaultPricingDir(env?)`. Pricing YAML lives under `LLAMACTL_PRICING_DIR` / `DEV_STORAGE`; malformed YAML is skipped, never thrown. Types `LoadPricingOptions` / `LoadPricingResult`.
+
+Drop into any MCP server — your own, or `@novaproto/mcp` — without pulling framework dependencies.
+
+## `@novaproto/mcp` — unified operator MCP facade
+
+Optional but useful: a stdio MCP server that rolls up the YAMLs a multi-provider AI deployment typically writes, proxies sibling MCP servers 1:1, and surfaces everything through a single endpoint. Depends on `@modelcontextprotocol/sdk` (1.29.0), `@novaproto/contracts`, `@novaproto/mcp-shared`, `yaml`, and `zod`.
+
+### Native tools
+
+| Tool                     | Purpose                                                                                                                                                                                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nova.ops.overview`      | Reads the three operator YAMLs and returns agents + gateways + providers + profiles + synthetic models. Missing files become empty sections.                                                                                                  |
+| `nova.ops.healthcheck`   | GET-probes each gateway and sirius provider `baseUrl`; fails soft per probe. Input `timeoutMs` (default 1500, max 30000).                                                                                                                     |
+| `nova.ops.cost.snapshot` | Aggregates usage JSONL over the last `days` (default 7, max 90) into per-provider and per-(provider, model) roll-ups, joining pricing when present. Inputs `disablePricing` / `pricingDir` / `dir`.                                           |
+| `nova.operator.plan`     | Translates a natural-language `goal` (+ optional `context`) into a `PlanSchema`-validated tool-call plan, allowlist-filtered. The default executor is a stub — bind your own LLM executor for real planning.                                  |
+| `nova.models.list`       | Aggregates `llamactl.catalog.list` + `sirius.models.list` + `embersynth.synthetic.list` in parallel, merges by the fixed priority `["llamactl", "sirius", "embersynth"]`, dedupes by id (recording `alsoAvailableIn`), and reports `partial`. |
+
+### The planner
+
+Four pure pieces, exported from the package root:
+
+- **Schema** — `PlanSchema` and `PlanStepSchema` (with `Plan` / `PlanStep` / `PlannerToolDescriptor` / `ToolSafetyTier` = `read | mutation-dry-run-safe | mutation-destructive`). A 20-step hard cap; each step requires an `annotation`.
+- **Allowlist** — `filterTools` + `DEFAULT_ALLOWLIST` (type `AllowlistConfig`). Deny wins over allow, the destructive tier needs `allowDestructive`, and an empty allow list fails closed. `DEFAULT_ALLOWLIST` allows `llamactl.* | sirius.* | embersynth.* | nova.*` and denies `sirius.providers.deregister`, `llamactl.infra.uninstall`, `llamactl.workload.delete`.
+- **Prompt** — `buildPlannerPrompt(opts): BuildPlannerPromptResult` emits the deterministic system + user messages and the `submit_plan` function schema.
+- **Executor** — the `PlannerExecutor` interface, the canned `stubPlannerExecutor`, and the `runPlanner(opts): Promise<RunPlannerResult>` composer (allowlist → prompt → executor → `PlanSchema` parse, returning a discriminated result). To bind a real model, `createLlmExecutor(opts: CreateLlmExecutorOptions): PlannerExecutor` wraps any `AiProvider` and forces the `submit_plan` tool via `tool_choice`.
+
+The package also exports `buildNovaMcpServer(opts?: BuildNovaMcpServerOptions): McpServer` (opts `name` / `version` / `plannerExecutor` / `plannerAllowlist` / `plannerTools`), the cost-snapshot helper `computeCostSnapshot(opts?): CostSnapshot` (types `CostGroup` / `CostSnapshot` / `CostSnapshotOptions`), and the default-path resolvers `defaultKubeconfigPath` / `defaultSiriusProvidersPath` / `defaultEmbersynthConfigPath`.
+
+### Honest boundaries
+
+These are deliberate, not gaps:
+
+- **The default planner executor is a stub** — it returns a canned plan until you bind an LLM via `createLlmExecutor`.
+- **The facade proxy snapshots downstream tools at boot only** — there is no hot reload; restart the facade to pick up downstream tool changes.
+
+---
+
+## Install
+
+All three packages are live on npm under the `@novaproto` scope.
+
+```bash
+npm install @novaproto/contracts @novaproto/mcp-shared @novaproto/mcp
+# or: bun add @novaproto/contracts @novaproto/mcp-shared @novaproto/mcp
 ```
 
 ```json
 {
   "dependencies": {
-    "@nova/contracts": "file:../nova/packages/contracts",
-    "@nova/mcp-shared": "file:../nova/packages/mcp-shared"
+    "@novaproto/contracts": "^0.1.0",
+    "@novaproto/mcp-shared": "^0.1.0",
+    "@novaproto/mcp": "^0.1.0"
   }
 }
 ```
 
-Each consumer installs its own copy under `node_modules`; schema
-drift is detected by running the consumer's test suite after a Nova
-bump.
+**Node-portable.** Each package builds to `dist/src/*.js` + `.d.ts` via `tsc --build`, with `main` / `types` pointing at the compiled JS — so consumers run on plain Node. Bun is the development and CI runtime only; the published artifacts run anywhere Node does.
 
-### Example — build a provider adapter
+Inside this monorepo the three packages reference each other with `workspace:*`. The release workflow packs each package with `bun pm pack`, which rewrites that to the exact version recorded for the dependency under `workspaces` in `bun.lock` (for example `"@novaproto/contracts": "0.1.0"`), and refuses a tarball that still carries a `workspace:` or other non-registry spec, or whose `@novaproto/*` version differs from that dependency's `package.json`, so consumers always pull a real published version, never a workspace or file specifier. npm itself does not rewrite `workspace:` specs.
+
+## Examples
+
+### Build a provider adapter
 
 ```ts
-import { createOpenAICompatProvider } from '@nova/contracts';
+import { createOpenAICompatProvider } from "@novaproto/contracts";
 
 const provider = createOpenAICompatProvider({
-  name: 'together',
-  baseUrl: 'https://api.together.xyz/v1',
-  apiKeyRef: '$TOGETHER_API_KEY',
+  name: "together",
+  baseUrl: "https://api.together.xyz/v1",
+  apiKey: process.env.TOGETHER_API_KEY!,
 });
 
-const response = await provider.createResponse({
-  model: 'meta-llama/Llama-3.3-70B-Instruct',
-  messages: [{ role: 'user', content: 'hello' }],
+const res = await provider.createResponse({
+  model: "meta-llama/Llama-3.3-70B-Instruct",
+  messages: [{ role: "user", content: "hello" }],
+});
+
+console.log(res.choices[0].message.content, res.latencyMs, res.provider);
+```
+
+### Log usage via the adapter's `onUsage` hook
+
+```ts
+import { createOpenAICompatProvider } from "@novaproto/contracts";
+import { appendUsageBackground } from "@novaproto/mcp-shared";
+
+const provider = createOpenAICompatProvider({
+  name: "openai",
+  baseUrl: "https://api.openai.com/v1",
+  apiKey: process.env.OPENAI_API_KEY!,
+  onUsage: (s) =>
+    queueMicrotask(() =>
+      appendUsageBackground({
+        record: { ...s, ts: new Date().toISOString() },
+      }),
+    ),
 });
 ```
 
-### Example — log usage
+`OpenAICompatUsageSnapshot` carries `provider` / `model` / `kind` / `prompt_tokens` / `completion_tokens` / `total_tokens` / `latency_ms` — exactly the writable fields of a `UsageRecord` minus `ts`, which you stamp on the way to the sink.
+
+### MCP server with audit + content envelope
 
 ```ts
-import { appendUsageBackground } from '@nova/mcp-shared';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { appendAudit, toTextContent } from "@novaproto/mcp-shared";
+import { z } from "zod";
 
-appendUsageBackground({
-  record: {
-    provider: 'openai',
-    model: 'gpt-4o-mini',
-    kind: 'chat',
-    prompt_tokens: 42,
-    completion_tokens: 17,
-    total_tokens: 59,
-    latency_ms: 310,
-    ts: new Date().toISOString(),
+const server = new McpServer({ name: "my-service", version: "0.1.0" });
+
+server.registerTool(
+  "my.service.status",
+  { title: "Service status", inputSchema: { verbose: z.boolean().default(false) } },
+  (input) => {
+    const status = { ok: true, verbose: input.verbose };
+    appendAudit({ server: "my-service", tool: "my.service.status", input });
+    return toTextContent(status);
   },
-});
+);
 ```
 
-### Example — MCP server with audit
+### Planner with a real LLM executor
 
 ```ts
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { appendAudit, toTextContent } from '@nova/mcp-shared';
+import { createOpenAICompatProvider } from "@novaproto/contracts";
+import { buildNovaMcpServer, createLlmExecutor } from "@novaproto/mcp";
 
-const server = new McpServer({ name: 'my-service', version: '0.0.0' });
+const provider = createOpenAICompatProvider({
+  name: "openai",
+  baseUrl: "https://api.openai.com/v1",
+  apiKey: process.env.OPENAI_API_KEY!,
+});
 
-server.registerTool('my.service.status', { /* schema */ }, async (input) => {
-  const status = await checkStatus();
-  appendAudit({ server: 'my-service', tool: 'my.service.status', input });
-  return toTextContent(status);
+const server = buildNovaMcpServer({
+  plannerExecutor: createLlmExecutor({ provider, model: "gpt-4o-mini" }),
 });
 ```
 
-## Editing Nova
+For the pure path without a server, `runPlanner({ goal, context, tools, allowlist, executor })` returns a discriminated `RunPlannerResult` — on failure, `reason` is one of `executor-failed` / `plan-shape-invalid` / `empty-goal` / `disallowed-tool`.
 
-1. Change a package under `packages/<name>/` and run
-   `bun test && bun run typecheck` at the repo root.
-2. Bump `version` in the changed package following semver intent
-   (wire-shape changes are breaking; additive schemas are minor;
-   docstring-only are patch).
-3. In each downstream consumer, run `bun install` to refresh the
-   lockfile, then run that consumer's test suite. Commit the
-   lockfile bump alongside any follow-up code changes.
+### Cost snapshot without a server
 
-## Layout
+```ts
+import { computeCostSnapshot } from "@novaproto/mcp";
 
-```
-packages/
-├── contracts/                 # @nova/contracts
-│   ├── src/
-│   │   ├── provider.ts
-│   │   ├── providers/openai-compat.ts
-│   │   └── schemas/{chat,embeddings,health,models,stream,usage}.ts
-│   └── test/
-├── mcp-shared/                # @nova/mcp-shared
-│   ├── src/{audit,content,usage,usage-reader,index}.ts
-│   └── test/
-├── mcp/                       # @nova/mcp
-│   ├── bin/nova-mcp.ts
-│   ├── src/
-│   │   ├── cost/snapshot.ts
-│   │   ├── planner/{schema,allowlist,prompt,executor}.ts
-│   │   ├── paths.ts
-│   │   └── server.ts
-│   └── test/
-└── exec-primitives/           # @novaproto/exec-primitives
-    ├── src/{process-supervisor,stdio-acp-*,acp-session,acp-warm-pool,host,index}.ts
-    ├── scripts/release-check.ts
-    └── test/
+const snap = computeCostSnapshot({ days: 7 });
+// snap.byProvider, snap.byModel, snap.totalEstimatedCostUsd
 ```
 
 ## Running nova-mcp
 
+The `@novaproto/mcp` package ships a `nova-mcp` binary — a stdio MCP facade you wire into Claude Desktop or any MCP client. On boot it runs `loadConfig` → `bootAll` → `mountProxyTools` (1:1 proxy, first-wins on name collisions, native tool names seeded so they always win) → `registerUnifiedTools`, then serves over a stdio transport with clean SIGINT / SIGTERM shutdown. The facade reads its downstream config from `~/.llamactl/nova-mcp.yaml` (override with `NOVA_MCP_CONFIG`); each downstream is `stdio` or `http`, with `${VAR}` env interpolation. The full facade reference — config schema, boot/passthrough sequence, the snapshot-at-boot contract, and what to avoid — lives in [`AGENTS.md`](./AGENTS.md).
+
 ```bash
 bun install
 bun packages/mcp/bin/nova-mcp.ts
-# stdio MCP server — wire into Claude Desktop or any MCP client.
 ```
 
-## Tests
+## Toolchain
+
+A strict, hard-gated toolchain. Every command runs on Bun (pinned in CI):
 
 ```bash
-bun test           # all packages
-bun run typecheck  # each package, in order
+bun run build              # tsc --build -> dist + .d.ts for every package
+bun run typecheck:strict   # tsc --noEmit over the whole tree
+bun run lint               # no-cross-package-relative guard + eslint --max-warnings=0 + strict typecheck
+bun test                   # all packages
 ```
+
+`bun run lint` is zero-tolerance: ESLint runs with `--max-warnings=0`, a custom `no-cross-package-relative` guard forbids reaching across package boundaries with relative imports, and the strict typecheck is folded in.
+
+CI (`.github/workflows/check.yml`) re-runs the full gate as a hard block on every pull request and push to `main`. The test step routes through `scripts/bun-test-gate.ts`, which gates on reported pass/fail counts and tolerates a Bun NAPI-teardown panic (exit 133) **only** when zero tests failed.
+
+### Releasing
+
+Releases are tag-driven, one package per run. `.github/workflows/release.yml` runs only when a tag named `contracts-v<version>`, `mcp-shared-v<version>` or `mcp-v<version>` is pushed, and releases only the package the tag names. Its `build` job has read-only permissions and no credentials: it refuses a tag that is not one of those three names with a plain `X.Y.Z` version, checks that package's manifest (`name` and `version` must match the tag, `private` must be absent, `publishConfig` must be exactly `{"access":"public"}`) and that `bun.lock` records, under `workspaces`, the `package.json` version of that package and of each `@novaproto/*` dependency it declares (no other workspace is checked), installs with the frozen lockfile, builds, runs lint with the strict typecheck, runs every test suite through the `check.yml` test gate, and packs `<package>.tgz` with `bun pm pack`. Packing rewrites `workspace:*` to the version recorded under `workspaces` in `bun.lock` (npm itself does not rewrite `workspace:` specs); the job refuses a tarball that lacks a declared entry point, whose `dependencies`, `optionalDependencies` or `peerDependencies` hold a `workspace:`, `catalog:`, `file:`, `link:`, git, URL, path or tarball-file (`.tgz`, `.tar`, `.tar.gz`) spec, or whose `@novaproto/*` dependency is not the exact version in that dependency's `package.json`. Its `publish` job waits for approval on the `npm-release` environment, checks out nothing, re-checks the tarball's structure, name, version, `private`, `publishConfig` and dependency-spec kinds (an `@novaproto/*` one must be an exact `X.Y.Z`), refuses unless every `@novaproto/*` dependency version is already live on the public registry and its published `dependencies` pin each `@novaproto/*` package the tarball also pins at the same version, then stages that exact tarball with `npm stage publish` through npm trusted publishing (OIDC). No npm token is used; the job refuses to run if one is configured. A staged version goes live only after a maintainer approves it with two-factor authentication on npmjs.com.
+
+**One-time setup (before the first tag push).**
+
+- Add `contracts-v*`, `mcp-shared-v*` and `mcp-v*` to the deployment tags of the `npm-release` environment, which the exec-primitives release shares (required reviewer, admin bypass off). Keep `exec-primitives-v*` there too: dropping a pattern blocks that package's releases at the environment gate. A workflow that names a missing environment creates it without protection rules.
+- Cover `contracts-v*`, `mcp-shared-v*` and `mcp-v*` with a tag ruleset (Restrict creations, Restrict updates and Restrict deletions, with the release maintainer or the Repository admin role on its bypass list), so only they can create release tags.
+- All three packages already exist on npm, so none needs a manual first publish. On npmjs.com, for each of `@novaproto/contracts`, `@novaproto/mcp-shared` and `@novaproto/mcp`, add a trusted publisher: organization or user `frozename`, repository `nova`, workflow filename `release.yml`, environment `npm-release`, stage-only. The fields are case-sensitive and not validated on save. Then set "Require two-factor authentication and disallow tokens" on the package.
+- Revoke every npm token that can publish under `@novaproto`, including any used to publish 0.1.0, and delete any `NPM_TOKEN` secret (repository or environment). Never add one: a tag push runs the workflow file at the tagged commit, and older commits carry a token-based `release.yml` that a `v*` tag runs with the `NPM_TOKEN` secret. Adding `v*` to the tag ruleset above keeps anyone outside its bypass list from pushing such a tag.
+
+**Release order.** Release in dependency order: **contracts → mcp-shared → mcp**. `bun pm pack` pins each `@novaproto/*` dependency to the version recorded for it under `workspaces` in `bun.lock`, and the `build` job refuses unless that equals the version in the dependency's `package.json`. The `publish` job refuses to stage a package while a pinned dependency version is not live (a staged, unapproved version is not), so approve a dependency on npmjs.com before pushing its dependent's tag. If the `publish` job refused for that reason, approve the dependency, then re-run the failed job. The pins are exact, so the `publish` job also refuses a package whose pinned dependency pins a different version of a package both depend on: `mcp` released after `contracts`, while the live `mcp-shared` still pins the previous `contracts`. So after releasing a package, re-release every package that depends on it, in order, before releasing anything further downstream: after `contracts`, release `mcp-shared`, then `mcp`. If a dependency's source changed since its last release, bump and release it first: a dependent released without that bump pins the previously published version.
+
+**Every release.**
+
+1. In a release commit, set `version` in the package's `package.json`, and set the same `version` for that package under `workspaces` in `bun.lock` by hand: `bun install` does not update that entry, and regenerating `bun.lock` would re-resolve every dependency. Merge the commit to `main`.
+2. Tag the merged commit and push the tag:
+
+   ```sh
+   git tag <package>-v<version> <merged-release-commit>
+   git push origin <package>-v<version>
+   ```
+
+3. Approve the `publish` job on the `npm-release` environment only if the run is for the release commit you merged and the tag you pushed.
+4. Approve the staged version on npmjs.com with two-factor authentication only if its name and version are the ones the tag names, its file list is the one you expect, and each `@novaproto/*` dependency version equals the version in `packages/<dependency>/package.json` at the tagged commit. Reject anything you did not tag.
+
+Pre-releases and backports are not supported as-is. `npm stage publish` refuses a pre-release, or a version below the highest published version that is neither a pre-release nor deprecated, without an explicit `--tag`. The workflow passes none and the tarball check rejects `publishConfig.tag`. A pre-release tag (not plain `X.Y.Z`) is refused by the `build` job, before the approval gate; a backport passes the gate and npm normally refuses it at the stage step (a client-side check; reject it on npmjs.com if it is ever staged). Either needs a commit that adds `--tag <dist-tag>` to the workflow's `npm stage publish` line (and, for a pre-release, relaxes the `X.Y.Z` checks in both jobs, including the one on `@novaproto/*` dependency specs) before that commit is tagged. The trusted publisher binds only the workflow filename, so this edit keeps it valid.
+
+A published version number can never be reused on npm, even after an unpublish.
 
 ## Reference consumers
 
-Real-world apps built on Nova (source + live usage examples):
+Real-world apps built on Nova. Nova depends on none of them — the arrow points inward.
 
-- [llamactl](https://github.com/frozename/llamactl) — single-
-  operator control plane for llama.cpp fleets. Uses every Nova
-  package.
-- [sirius-gateway](https://github.com/frozename/sirius-gateway) —
-  multi-provider AI gateway with OpenAI-compatible routes. Adapters
-  delegate to `@nova/contracts`.
-- [embersynth](https://github.com/frozename/embersynth) —
-  capability-based distributed AI orchestration runtime. OpenAI-
-  compatible adapter delegates to Nova's provider factory.
+- [llamactl](https://github.com/frozename/llamactl) — single-operator control plane for llama.cpp fleets. Uses every Nova package.
+- [sirius-gateway](https://github.com/frozename/sirius-gateway) — multi-provider AI gateway with OpenAI-compatible routes. Adapters delegate to `@novaproto/contracts`.
+- [embersynth](https://github.com/frozename/embersynth) — capability-based distributed AI orchestration runtime. Its OpenAI-compatible adapter delegates to Nova's provider factory.
 
 ## License
 
-MIT.
+MIT. See [LICENSE](./LICENSE).

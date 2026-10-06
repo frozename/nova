@@ -8,27 +8,29 @@ user-facing overview.
 
 Nova is an AI-provider SDK + MCP server scaffolding:
 
-- `@nova/contracts` — canonical Zod schemas + TS interfaces for
+- `@novaproto/contracts` — canonical Zod schemas + TS interfaces for
   chat, embeddings, models, health, stream, usage; `AiProvider`
   interface; OpenAI-compat adapter factory.
-- `@nova/mcp-shared` — transport-agnostic helpers for MCP servers
+- `@novaproto/mcp-shared` — transport-agnostic helpers for MCP servers
   (audit sink, content envelopes, usage sink + reader).
-- `@nova/mcp` — unified operator MCP facade. Consumer of the two
+- `@novaproto/mcp` — unified operator MCP facade. Consumer of the two
   above.
 - `@novaproto/exec-primitives` — host-configured execution
   primitives (process supervision, stdio ACP transport + permissions,
   warm-process pool, ACP session bootstrap). No runtime dependencies;
   published to npm.
 
-Nova is consumed via `file:` deps by sibling repos (`llamactl`,
-`sirius-gateway`, `embersynth`, and anything else built on top).
-**Nova does not know about its consumers.** Resist adding
-llamactl/sirius/embersynth-specific shapes here; put them in the
-consumer.
+Nova publishes to npm under the `@novaproto` scope; sibling repos
+(`llamactl`, `sirius-gateway`, `embersynth`, and anything else built
+on top) consume it via a real `^version` range. **Nova does not know
+about its consumers.** Resist adding llamactl/sirius/embersynth-specific
+shapes here; put them in the consumer.
 
 ## Tech stack
 
-- Bun 1.3+ (`bun test`, `bun install`, `bun run typecheck`).
+- Bun 1.3.14 as the dev + CI runtime (`bun test`, `bun install`,
+  `bun run …`); pinned in both workflows. Published packages are
+  node-portable — Bun is not required to consume them.
 - TypeScript 5.9+, `"type": "module"`, `.js` import specifiers on TS
   paths (standard NodeNext + ESM).
 - Zod 4.3+ (`z.enum`, `z.discriminatedUnion`, `.partial()` for
@@ -41,31 +43,49 @@ consumer.
 
 ```
 packages/
-├── contracts/        @nova/contracts  — schemas + interfaces only
-├── mcp-shared/       @nova/mcp-shared — audit + content + usage
-├── mcp/              @nova/mcp        — operator MCP facade
+├── contracts/        @novaproto/contracts  — schemas + interfaces only
+├── mcp-shared/       @novaproto/mcp-shared — audit + content + usage
+├── mcp/              @novaproto/mcp        — operator MCP facade
 └── exec-primitives/  @novaproto/exec-primitives — execution primitives
 ```
 
 Each package carries its own `package.json`, `tsconfig.json`, and
-`test/`. Consumer ergonomics matter — keep `main` pointing at the
-TS source (`src/index.ts`) so `file:` deps work without a build
-step. Exception: `@novaproto/exec-primitives` is published to npm,
-so its `main`/`exports` point at the built `dist/src`; run
-`bun run build` in it before consuming it through a `file:` dep.
-Its release process is in `packages/exec-primitives/README.md`.
+`test/`. Packages build to `dist/` (`tsc --build`); `main` points at
+the compiled `dist/src/index.js` and `types` at the `.d.ts`, so the
+published artifacts are **node-portable** — consumers do not need Bun.
+The three packages reference each other internally with `workspace:*`,
+which `bun pm pack` in the release workflow rewrites to the exact
+version recorded for the dependency under `workspaces` in `bun.lock`;
+npm itself does not rewrite `workspace:` specs. `bun install` does not
+update that entry, so a version bump sets it in `bun.lock` by hand.
+`@novaproto/exec-primitives` has no `@novaproto/*` dependencies and is
+released by its own workflow; its release process is in
+`packages/exec-primitives/README.md`.
 
 ## Commands
 
 ```bash
-bun install            # workspace install
-bun test               # all packages
-bun run typecheck      # each package, in sequence
+bun install                # workspace install (also installs the Husky hook)
+bun run build              # tsc --build -> dist for every package
+bun run typecheck:strict   # tsc --noEmit over the whole tree
+bun run lint               # no-cross-package-relative + eslint --max-warnings=0 + strict typecheck
+bun test                   # all packages
+bun run format             # Prettier write (format:check for CI-style verify)
 bun packages/mcp/bin/nova-mcp.ts   # stdio MCP server
 ```
 
-Every PR: `bun test && bun run typecheck` from the repo root before
-committing.
+Every PR runs the full gate `bun run lint && bun run build && bun test`
+from the repo root before committing. This is a **hard, zero-tolerance
+gate** — ESLint runs with `--max-warnings=0`, and CI
+(`.github/workflows/check.yml`) re-runs install (frozen lockfile) →
+`typecheck:strict` → `lint` → `build` → test on every PR and push to
+`main`. A Husky `pre-commit` hook runs `lint-staged` (Prettier on
+staged files); `bun install` installs it via the `prepare` script.
+
+When the lint gate flags new code, fix it — do not weaken a rule.
+A scoped `// eslint-disable-next-line <rule> -- <reason>` with a real
+justification is the only sanctioned escape hatch (see the existing
+ones in `packages/mcp-shared/test/`).
 
 ## Code style
 
@@ -95,12 +115,16 @@ committing.
 - `bun:test` throughout. `describe` + `test`, `expect(...).to*`.
 - Temp dirs for file I/O:
   ```ts
-  import { mkdtempSync, rmSync } from 'node:fs';
-  import { tmpdir } from 'node:os';
-  import { join } from 'node:path';
-  let dir = '';
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'nova-xyz-')); });
-  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+  import { mkdtempSync, rmSync } from "node:fs";
+  import { tmpdir } from "node:os";
+  import { join } from "node:path";
+  let dir = "";
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nova-xyz-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
   ```
 - MCP integration tests use `InMemoryTransport.createLinkedPair()`;
   no subprocess needed.
@@ -112,22 +136,22 @@ committing.
 
 ## Schema changes = semver event
 
-Changing any Zod schema in `@nova/contracts` is a wire-shape change.
+Changing any Zod schema in `@novaproto/contracts` is a wire-shape change.
 Follow this sequence:
 
 1. Edit the schema + add/update tests.
-2. `bun test && bun run typecheck` at the nova root.
+2. `bun run lint && bun run build && bun test` at the nova root.
 3. Bump `version` in the affected package (`packages/contracts/package.json`).
 4. In each downstream consumer (`llamactl`, `sirius-gateway`,
-   `embersynth`, …), `bun install` refreshes the file: dep; then
-   run that consumer's full test suite.
+   `embersynth`, …), bump the `@novaproto/*` range, `bun install` to
+   refresh the lockfile, then run that consumer's full test suite.
 5. Commit the consumer's lockfile bump alongside any code changes
    the schema change required. One commit per consumer.
 
 Never split a "nova schema" commit from its "consumer lockfile"
 commit without a good reason — agents should batch.
 
-## MCP facade (`@nova/mcp`) patterns
+## MCP facade (`@novaproto/mcp`) patterns
 
 - Tool handlers are thin. Validate input at the Zod boundary
   (`inputSchema` in `registerTool`), call a pure helper in
@@ -141,12 +165,12 @@ commit without a good reason — agents should batch.
   boundary. Duplicate critical guards inside the handler (e.g.,
   `runPlanner` re-checks empty goal).
 - Planner executor interface is injectable. Never bake a specific
-  model binding into `@nova/mcp`; consumers pass executors at
+  model binding into `@novaproto/mcp`; consumers pass executors at
   construction time via `buildNovaMcpServer({ plannerExecutor })`.
 
 ### Facade config (`~/.llamactl/nova-mcp.yaml`)
 
-`@nova/mcp` is a unified facade over the three downstream servers
+`@novaproto/mcp` is a unified facade over the three downstream servers
 (`@llamactl/mcp`, `@sirius/mcp`, `@embersynth/mcp`). The facade reads
 a YAML config at `~/.llamactl/nova-mcp.yaml` (overridable via
 `NOVA_MCP_CONFIG`) that declares each downstream's transport.
@@ -198,7 +222,7 @@ availability:
   and reports per-node reachability; fails-soft so one flaky URL
   doesn't poison the report.
 - `nova.ops.cost.snapshot` — rolls up usage + pricing into a cost
-  report (via `@nova/mcp-shared::readUsage`/`loadPricing`).
+  report (via `@novaproto/mcp-shared::readUsage`/`loadPricing`).
 - `nova.operator.plan` — natural-language goal → JSON plan of MCP
   tool calls; stub + LLM executor modes, injectable via
   `buildNovaMcpServer({ plannerExecutor })`.
@@ -231,6 +255,21 @@ restarts, the facade's proxy handlers call through a dead client and
 surface the error; the operator restarts the facade to pick up new
 tools. Reconnect / live-refresh is a future slice, not a bug.
 
+### Sibling MCP fleet
+
+The Nova-aware MCP fleet has a fourth peer that isn't a downstream of
+this facade: `@penumbradev/mcp` (local-first observability + cross-agent
+chat orchestrator), published on npm under the `@penumbradev` scope and
+developed locally at
+`/Volumes/WorkSSD/repos/personal/penumbra/packages/mcp/`. It exposes
+`memory.observe`, `memory.recall`, `session.end`,
+`handoff.list_pending`, `handoff.approve`, and `chain.start` — useful
+when a Nova-orchestrated workflow needs to hand a sub-task off to a
+separate agent (Claude / Gemini / Codex / local LLM) and observe the
+result. Penumbra registers as its own `mcpServers.penumbra` entry in
+the harness configs, alongside `nova`. Don't proxy it through Nova's
+facade; the two coexist as siblings.
+
 ### What to avoid (facade-specific)
 
 - Dynamic re-discovery of downstream tools at call time. Boot-time
@@ -249,13 +288,17 @@ tools. Reconnect / live-refresh is a future slice, not a bug.
 
 - Importing from `@llamactl/*`, `@sirius/*`, or `@embersynth/*` —
   Nova is the dependency, not the dependent.
-- Adding runtime deps to `@nova/contracts`. It's schemas +
+- Adding runtime deps to `@novaproto/contracts`. It's schemas +
   interfaces; no HTTP, no SDK wrappers, no file I/O.
 - Committing `.env` or secrets.
 - `z.record(z.unknown())` (Zod 3 shape — compile-errors in Zod 4).
-- `workspace:*` deps between Nova's own packages. They break
-  resolution when a consumer links `@nova/mcp` via `file:`. Use
-  `file:../sibling` instead.
+- Cross-package **relative** imports (`../../contracts/src/...`). The
+  `no-cross-package-relative` lint guard fails the build on these;
+  import the package by name (`@novaproto/contracts`) instead. The internal
+  `workspace:*` deps are deliberate — `bun pm pack` in the release
+  workflow rewrites them to the exact version recorded in `bun.lock`
+  (npm itself does not rewrite `workspace:` specs), so they do not leak
+  to consumers.
 
 ## When in doubt
 

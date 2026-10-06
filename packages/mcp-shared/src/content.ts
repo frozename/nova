@@ -11,12 +11,12 @@
  * without a cast.
  */
 export interface TextContentEnvelope {
-  content: Array<{ type: 'text'; text: string }>;
+  content: { type: "text"; text: string }[];
   [key: string]: unknown;
 }
 
 export function toTextContent(payload: unknown): TextContentEnvelope {
   return {
-    content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
   };
 }

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Model catalog. `ModelInfo` is the canonical shape for "what can
@@ -8,16 +8,16 @@ import { z } from 'zod';
  */
 
 export const ModelCapabilitySchema = z.enum([
-  'chat',
-  'embeddings',
-  'reasoning',
-  'vision',
-  'audio',
-  'tools',
-  'json_mode',
-  'structured_output',
-  'long_context',
-  'code',
+  "chat",
+  "embeddings",
+  "reasoning",
+  "vision",
+  "audio",
+  "tools",
+  "json_mode",
+  "structured_output",
+  "long_context",
+  "code",
 ]);
 export type ModelCapability = z.infer<typeof ModelCapabilitySchema>;
 
@@ -29,7 +29,7 @@ export const ModelCostSchema = z.object({
 
 export const ModelInfoSchema = z.object({
   id: z.string(),
-  object: z.literal('model'),
+  object: z.literal("model"),
   /** Seconds-since-epoch, matching OpenAI's `created` field. */
   created: z.number().int(),
   /** Provider name — "openai", "anthropic", "llamactl-agent", etc.
@@ -47,7 +47,7 @@ export const ModelInfoSchema = z.object({
 export type ModelInfo = z.infer<typeof ModelInfoSchema>;
 
 export const ModelListResponseSchema = z.object({
-  object: z.literal('list'),
+  object: z.literal("list"),
   data: z.array(ModelInfoSchema),
 });
 export type ModelListResponse = z.infer<typeof ModelListResponseSchema>;

@@ -1,6 +1,6 @@
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 /**
  * Append-only JSONL sink for UsageRecord entries. Same shape as
@@ -20,8 +20,8 @@ import { dirname, join } from 'node:path';
 
 export interface UsageWriteOptions {
   /** Any object that matches UsageRecordSchema shape from
-   *  `@nova/contracts`. Kept as `unknown` here so mcp-shared doesn't
-   *  need @nova/contracts as a dep — the sink is a byte writer, the
+   *  `@novaproto/contracts`. Kept as `unknown` here so mcp-shared doesn't
+   *  need @novaproto/contracts as a dep — the sink is a byte writer, the
    *  schema is enforced at the adapter boundary. */
   record: unknown;
   /** Override the usage directory (tests). */
@@ -31,18 +31,19 @@ export interface UsageWriteOptions {
 }
 
 export function defaultUsageDir(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.LLAMACTL_USAGE_DIR?.trim();
+  const override = env["LLAMACTL_USAGE_DIR"]?.trim();
   if (override) return override;
-  const base = env.DEV_STORAGE?.trim() || join(homedir(), '.llamactl');
-  return join(base, 'usage');
+  const devStorage = env["DEV_STORAGE"]?.trim();
+  const base = devStorage && devStorage.length > 0 ? devStorage : join(homedir(), ".llamactl");
+  return join(base, "usage");
 }
 
 function usageFilePath(dir: string, provider: string, now: Date): string {
-  const y = now.getUTCFullYear();
-  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(now.getUTCDate()).padStart(2, '0');
+  const y = String(now.getUTCFullYear());
+  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(now.getUTCDate()).padStart(2, "0");
   // Sanitize: provider slug must not contain path separators.
-  const slug = provider.replace(/[^a-z0-9._-]/gi, '_');
+  const slug = provider.replaceAll(/[^a-z0-9._-]/gi, "_");
   return join(dir, `${slug}-${y}-${m}-${d}.jsonl`);
 }
 
@@ -52,21 +53,23 @@ function usageFilePath(dir: string, provider: string, now: Date): string {
  * opaque to this writer.
  */
 export function appendUsage(opts: UsageWriteOptions): string {
-  const r = opts.record as { provider?: unknown; ts?: unknown };
-  if (typeof r?.provider !== 'string' || r.provider.length === 0) {
-    throw new Error('appendUsage: record.provider is required');
+  const r = opts.record as { provider?: unknown; ts?: unknown } | null | undefined;
+  if (typeof r?.provider !== "string" || r.provider.length === 0) {
+    throw new Error("appendUsage: record.provider is required");
   }
-  const now = (opts.now ?? (() => new Date()))();
+  const now = (opts.now ?? ((): Date => new Date()))();
   const dir = opts.dir ?? defaultUsageDir();
   const path = usageFilePath(dir, r.provider, now);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- path derived from sanitized provider slug under an internal usage dir (defaultUsageDir or test-injected); slug strips path separators in usageFilePath.
   mkdirSync(dirname(path), { recursive: true });
   // Normalize `ts` — if the caller didn't supply one, stamp with now.
   // Avoids each write site having to remember to set it.
   const enriched =
-    typeof r.ts === 'string' && r.ts.length > 0
+    typeof r.ts === "string" && r.ts.length > 0
       ? r
       : { ...(opts.record as object), ts: now.toISOString() };
-  appendFileSync(path, `${JSON.stringify(enriched)}\n`, 'utf8');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- same internal sanitized path as the mkdirSync above; not attacker-controlled.
+  appendFileSync(path, `${JSON.stringify(enriched)}\n`, "utf8");
   return path;
 }
 
