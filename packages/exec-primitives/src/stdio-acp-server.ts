@@ -32,7 +32,7 @@ export interface StdioAcpHandle {
   stdout: Readable;
   kill: () => void;
   exited: Promise<number | null>;
-  pid?: number;
+  pid?: number | undefined;
   /** Returns up to the last `stderrTailBytes` of child stderr seen so far. */
   getStderrTail: () => string;
   /**
@@ -118,7 +118,7 @@ export function startStdioAcpServer(opts: StdioAcpServerOptions): Promise<StdioA
       proc.cancel();
     },
     exited: proc.exit.then((record) => record.code),
-    ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
+    pid: proc.pid,
     getStderrTail: () => Buffer.concat(tailChunks).toString("utf8"),
     getSpawnError: () => proc.spawnError,
   });
