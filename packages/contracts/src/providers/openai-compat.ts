@@ -229,7 +229,7 @@ function isWireError(err: unknown): boolean {
   return e.message !== undefined || e.type !== undefined || e.code !== undefined;
 }
 
-function renderWireCode(code: unknown): string | undefined {
+function formatWireErrorCode(code: unknown): string | undefined {
   if (typeof code === "string") return code;
   if (
     typeof code === "number" ||
@@ -252,20 +252,27 @@ function wireErrorToEvent(err: unknown): {
   retryable: boolean;
 } {
   let message: string;
-  let code: string | undefined;
+  let rawCode: unknown;
   if (typeof err === "string") {
     message = err;
   } else if (err !== null && typeof err === "object") {
     const e = err as { message?: unknown; code?: unknown; type?: unknown };
     message = typeof e.message === "string" ? e.message : JSON.stringify(err);
-    code = renderWireCode(e.code ?? e.type);
+    rawCode = e.code ?? e.type;
   } else {
     message = String(err);
   }
+  const code = formatWireErrorCode(rawCode);
   return {
     message,
     ...(code !== undefined ? { code } : {}),
-    retryable: code !== undefined && isRetryableUpstreamCode(code),
+    // Retryability is a property of the raw wire value: only primitive
+    // string/number codes go through the keyword match. A structured
+    // code rendered to JSON must never turn retryable.
+    retryable:
+      (typeof rawCode === "string" || typeof rawCode === "number") &&
+      code !== undefined &&
+      isRetryableUpstreamCode(code),
   };
 }
 
@@ -409,13 +416,14 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         const text = await res.text().catch(() => "");
         throw new Error(`${opts.name} ${String(res.status)}: ${text.slice(0, 500)}`);
       }
-      const parsed = ResponseEnvelopeSchema.safeParse(await res.json());
+      const parsedBody: unknown = await res.json();
+      const parsed = ResponseEnvelopeSchema.safeParse(parsedBody);
       const latencyMs = Date.now() - startedAt;
-      // Validate the .json() boundary instead of casting it. On a malformed
-      // envelope the legacy usage snapshot is skipped and the observation
-      // records unknown usage, but the body is still returned — the caller's
-      // response schema is the next gate.
-      const raw = (parsed.success ? parsed.data : {}) as UnifiedAiResponse;
+      // The envelope parse feeds telemetry only — id, model and the usage
+      // block the two callbacks read. The upstream body is returned to the
+      // caller as sent, malformed envelope or not; the caller's response
+      // schema is the next gate.
+      const raw = parsedBody as UnifiedAiResponse;
       const envelope = parsed.success ? parsed.data : undefined;
       const usage = envelope?.usage;
       const model = envelope?.model ?? request.model;
@@ -618,7 +626,10 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
                     ...(c.delta?.tool_calls ? { tool_calls: c.delta.tool_calls } : {}),
                   },
                   ...(c.finish_reason !== undefined
-                    ? { finish_reason: mapFinishReason(c.finish_reason) }
+                    ? {
+                        finish_reason:
+                          c.finish_reason === null ? null : mapFinishReason(c.finish_reason),
+                      }
                     : {}),
                 })),
               },
@@ -737,10 +748,12 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         const text = await res.text().catch(() => "");
         throw new Error(`${opts.name} ${String(res.status)}: ${text.slice(0, 500)}`);
       }
-      const parsed = ResponseEnvelopeSchema.safeParse(await res.json());
+      const parsedBody: unknown = await res.json();
+      const parsed = ResponseEnvelopeSchema.safeParse(parsedBody);
       const latencyMs = Date.now() - startedAt;
-      // Same validate-not-cast boundary as createResponse.
-      const raw = (parsed.success ? parsed.data : {}) as UnifiedEmbeddingResponse;
+      // Same telemetry-only envelope parse as createResponse — the body is
+      // returned as sent even when the envelope fails to parse.
+      const raw = parsedBody as UnifiedEmbeddingResponse;
       const envelope = parsed.success ? parsed.data : undefined;
       const usage = envelope?.usage;
       const model = envelope?.model ?? request.model;
