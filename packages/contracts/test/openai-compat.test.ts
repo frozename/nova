@@ -2006,3 +2006,198 @@ describe("openai-compat — finish_reason fallback and usage gating", () => {
     expect(calls).toBe(1);
   });
 });
+
+describe("openai-compat — stream wire fidelity", () => {
+  const request = { model: "m", messages: [{ role: "user" as const, content: "x" }] };
+
+  function sseProvider(body: string): ReturnType<typeof createOpenAICompatProvider> {
+    return createOpenAICompatProvider({
+      name: "probe",
+      baseUrl: "http://probe.invalid/v1",
+      apiKey: "k",
+      fetch: Object.assign(
+        () =>
+          Promise.resolve(new Response(body, { headers: { "content-type": "text/event-stream" } })),
+        { preconnect: () => undefined },
+      ),
+    });
+  }
+
+  test("stream: intermediate null finish_reason chunk stays null", async () => {
+    const sse =
+      'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}\n\n' +
+      'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n' +
+      "data: [DONE]\n\n";
+    const events: UnifiedStreamEvent[] = [];
+    for await (const event of sseProvider(sse).streamResponse?.(request) ?? []) {
+      events.push(event);
+    }
+    const chunks = events.filter(
+      (e): e is Extract<UnifiedStreamEvent, { type: "chunk" }> => e.type === "chunk",
+    );
+    expect(chunks).toHaveLength(2);
+    const firstChoice = chunks[0]!.chunk.choices[0]!;
+    expect(Object.hasOwn(firstChoice, "finish_reason")).toBe(true);
+    expect(firstChoice).toHaveProperty("finish_reason", null);
+    expect(chunks[1]!.chunk.choices[0]!.finish_reason).toBe("stop");
+    const done = events.find(
+      (e): e is Extract<UnifiedStreamEvent, { type: "done" }> => e.type === "done",
+    );
+    expect(done?.finish_reason).toBe("stop");
+    for (const event of events) {
+      expect(UnifiedStreamEventSchema.safeParse(event).success).toBe(true);
+    }
+  });
+
+  test("SSE error frame with an object-valued code is not retryable", async () => {
+    const sse =
+      'data: {"error":{"message":"boom","code":{"type":"server_error"}}}\n\n' + "data: [DONE]\n\n";
+    const events: UnifiedStreamEvent[] = [];
+    for await (const event of sseProvider(sse).streamResponse?.(request) ?? []) {
+      events.push(event);
+    }
+    const err = events.find(
+      (e): e is Extract<UnifiedStreamEvent, { type: "error" }> => e.type === "error",
+    );
+    expect(err?.error.code).toBe('{"type":"server_error"}');
+    expect(err?.error.retryable).toBe(false);
+    for (const event of events) {
+      expect(UnifiedStreamEventSchema.safeParse(event).success).toBe(true);
+    }
+  });
+});
+
+describe("openai-compat — malformed telemetry envelope passthrough", () => {
+  const request = { model: "m", messages: [{ role: "user" as const, content: "x" }] };
+  const embRequest = { model: "e", input: "abc" };
+
+  function jsonProvider(
+    body: object,
+    hooks: { onUsage?: () => void; onUsageObservation?: (o: unknown) => void } = {},
+  ): ReturnType<typeof createOpenAICompatProvider> {
+    return createOpenAICompatProvider({
+      name: "probe",
+      baseUrl: "http://probe.invalid/v1",
+      apiKey: "k",
+      fetch: Object.assign(() => Promise.resolve(Response.json(body)), {
+        preconnect: () => undefined,
+      }),
+      ...(hooks.onUsage ? { onUsage: hooks.onUsage } : {}),
+      ...(hooks.onUsageObservation ? { onUsageObservation: hooks.onUsageObservation } : {}),
+    });
+  }
+
+  test("createResponse: null id/model/usage envelope body is returned intact", async () => {
+    const body = {
+      id: null,
+      object: "chat.completion",
+      created: 1,
+      model: null,
+      choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }],
+      usage: null,
+    };
+    const { observations, onUsageObservation } = collectObservations();
+    let usageCalls = 0;
+    const result = await jsonProvider(body, {
+      onUsage: () => {
+        usageCalls++;
+      },
+      onUsageObservation,
+    }).createResponse(request);
+    const { latencyMs, provider, ...rest } = result;
+    const actual: unknown = rest;
+    expect(actual).toEqual(body);
+    expect(provider).toBe("probe");
+    expect(typeof latencyMs).toBe("number");
+    expect(usageCalls).toBe(0);
+    expect(observations).toHaveLength(1);
+    expect(observations[0]!.observation).toEqual({ source: "unknown" });
+  });
+
+  test("createResponse: non-numeric usage count body is returned intact", async () => {
+    const body = {
+      id: "c1",
+      object: "chat.completion",
+      created: 1,
+      model: "m",
+      choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: "1", completion_tokens: "1", total_tokens: "2" },
+    };
+    const { observations, onUsageObservation } = collectObservations();
+    let usageCalls = 0;
+    const result = await jsonProvider(body, {
+      onUsage: () => {
+        usageCalls++;
+      },
+      onUsageObservation,
+    }).createResponse(request);
+    const { latencyMs, provider, ...rest } = result;
+    const actual: unknown = rest;
+    expect(actual).toEqual(body);
+    expect(provider).toBe("probe");
+    expect(typeof latencyMs).toBe("number");
+    expect(usageCalls).toBe(0);
+    expect(observations).toHaveLength(1);
+    const obs = observations[0]!.observation!;
+    expect(obs["source"]).toBe("unknown");
+    expect(obs["input_tokens"]).toBeUndefined();
+    expect(obs["output_tokens"]).toBeUndefined();
+    expect(obs["total_tokens"]).toBeUndefined();
+  });
+
+  test("createEmbeddings: null id/model/usage envelope body is returned intact", async () => {
+    const body = {
+      id: null,
+      object: "list",
+      data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2] }],
+      model: null,
+      usage: null,
+    };
+    const { observations, onUsageObservation } = collectObservations();
+    let usageCalls = 0;
+    const result = await jsonProvider(body, {
+      onUsage: () => {
+        usageCalls++;
+      },
+      onUsageObservation,
+    }).createEmbeddings?.(embRequest);
+    const { latencyMs, provider, ...rest } = result!;
+    const actual: unknown = rest;
+    expect(actual).toEqual(body);
+    expect(provider).toBe("probe");
+    expect(typeof latencyMs).toBe("number");
+    expect(usageCalls).toBe(0);
+    expect(observations).toHaveLength(1);
+    expect(observations[0]!.observation).toEqual({ source: "unknown" });
+  });
+
+  test("createEmbeddings: non-numeric usage count body is returned intact", async () => {
+    const body = {
+      id: "e1",
+      object: "list",
+      data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2] }],
+      model: "e",
+      usage: { prompt_tokens: "1", completion_tokens: "1", total_tokens: "2" },
+    };
+    const { observations, onUsageObservation } = collectObservations();
+    let usageCalls = 0;
+    const result = await jsonProvider(body, {
+      onUsage: () => {
+        usageCalls++;
+      },
+      onUsageObservation,
+    }).createEmbeddings?.(embRequest);
+    const { latencyMs, provider, ...rest } = result!;
+    const actual: unknown = rest;
+    expect(actual).toEqual(body);
+    expect(provider).toBe("probe");
+    expect(typeof latencyMs).toBe("number");
+    expect(usageCalls).toBe(0);
+    expect(observations).toHaveLength(1);
+    const obs = observations[0]!.observation!;
+    expect(obs["source"]).toBe("unknown");
+    expect(obs["input_tokens"]).toBeUndefined();
+    expect(obs["output_tokens"]).toBeUndefined();
+    expect(obs["total_tokens"]).toBeUndefined();
+  });
+});
