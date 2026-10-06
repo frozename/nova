@@ -419,6 +419,16 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       });
       return {
         ...raw,
+        ...(raw.choices
+          ? {
+              choices: raw.choices.map((choice) => ({
+                ...choice,
+                ...(typeof choice.finish_reason === "string"
+                  ? { finish_reason: mapFinishReason(choice.finish_reason) }
+                  : {}),
+              })),
+            }
+          : {}),
         latencyMs,
         provider: opts.name,
       };
