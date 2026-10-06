@@ -22,7 +22,7 @@ function collectObservations(): {
   const observations: Observation[] = [];
   return {
     observations,
-    onUsageObservation: (o) => {
+    onUsageObservation: (o): void => {
       observations.push(JSON.parse(JSON.stringify(o)) as Observation);
     },
   };
@@ -67,7 +67,7 @@ beforeAll(() => {
         if (body.stream) {
           const toolCallRun = Array.isArray(body.tools) && body.tools.length > 0;
           const stream = new ReadableStream({
-            start(controller) {
+            start(controller): void {
               const enc = new TextEncoder();
               if (toolCallRun) {
                 // Emit two partial tool_call deltas + a finish frame.
@@ -152,14 +152,14 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  upstream?.stop(true);
+  void upstream?.stop(true);
 });
 
 function makeProvider(): ReturnType<typeof createOpenAICompatProvider> {
   return createOpenAICompatProvider({
     name: "stub",
     displayName: "Stub",
-    baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+    baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
     apiKey: "sk-test",
   });
 }
@@ -172,7 +172,7 @@ function sseServer(frames: string[]): { port: number; stop: () => void } {
     fetch() {
       const enc = new TextEncoder();
       const stream = new ReadableStream({
-        start(controller) {
+        start(controller): void {
           for (const f of frames) controller.enqueue(enc.encode(f));
           controller.close();
         },
@@ -183,7 +183,12 @@ function sseServer(frames: string[]): { port: number; stop: () => void } {
       });
     },
   });
-  return { port: server.port!, stop: () => server.stop(true) };
+  return {
+    port: server.port!,
+    stop: (): void => {
+      void server.stop(true);
+    },
+  };
 }
 
 /** Serves the given SSE frames then stays open — the stream never ends. */
@@ -194,7 +199,7 @@ function hangingSseServer(frames: string[]): { port: number; stop: () => void } 
     fetch() {
       const enc = new TextEncoder();
       const stream = new ReadableStream({
-        start(controller) {
+        start(controller): void {
           for (const f of frames) controller.enqueue(enc.encode(f));
           // Stream stays open — no [DONE], no more data.
         },
@@ -205,13 +210,18 @@ function hangingSseServer(frames: string[]): { port: number; stop: () => void } 
       });
     },
   });
-  return { port: server.port!, stop: () => server.stop(true) };
+  return {
+    port: server.port!,
+    stop: (): void => {
+      void server.stop(true);
+    },
+  };
 }
 
 async function drainEvents(port: number): Promise<UnifiedStreamEvent[]> {
   const p = createOpenAICompatProvider({
     name: "sse",
-    baseUrl: `http://127.0.0.1:${port}/v1`,
+    baseUrl: `http://127.0.0.1:${String(port)}/v1`,
     apiKey: "sk",
   });
   const events: UnifiedStreamEvent[] = [];
@@ -260,7 +270,7 @@ describe("openai-compat provider", () => {
         (e as { type?: string }).type === "chunk",
     );
     expect(chunks.length).toBeGreaterThanOrEqual(2);
-    const joined = chunks.map((c) => c.chunk.choices[0]?.delta.content ?? "").join("");
+    const joined = chunks.map((c) => c.chunk.choices[0].delta.content ?? "").join("");
     expect(joined).toBe("hello");
     const lastEvent = events[events.length - 1] as { type: string };
     expect(lastEvent.type).toBe("done");
@@ -298,7 +308,7 @@ describe("openai-compat provider", () => {
     const p = createOpenAICompatProvider({
       name: "local",
       // Root baseUrl — /health sits outside /v1 on self-hosted gateways.
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}`,
       apiKey: "x",
       healthPath: "/health",
     });
@@ -358,7 +368,7 @@ describe("openai-compat provider — onUsage callback", () => {
     const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: (s) => {
         snapshots.push({ ...s });
@@ -369,13 +379,13 @@ describe("openai-compat provider — onUsage callback", () => {
       messages: [{ role: "user", content: "hi" }],
     });
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]!.provider).toBe("stub");
-    expect(snapshots[0]!.model).toBe("gpt-4o-mini");
-    expect(snapshots[0]!.kind).toBe("chat");
-    expect(snapshots[0]!.prompt_tokens).toBe(2);
-    expect(snapshots[0]!.completion_tokens).toBe(1);
-    expect(snapshots[0]!.total_tokens).toBe(3);
-    expect(typeof snapshots[0]!.latency_ms).toBe("number");
+    expect(snapshots[0]!["provider"]).toBe("stub");
+    expect(snapshots[0]!["model"]).toBe("gpt-4o-mini");
+    expect(snapshots[0]!["kind"]).toBe("chat");
+    expect(snapshots[0]!["prompt_tokens"]).toBe(2);
+    expect(snapshots[0]!["completion_tokens"]).toBe(1);
+    expect(snapshots[0]!["total_tokens"]).toBe(3);
+    expect(typeof snapshots[0]!["latency_ms"]).toBe("number");
   });
 
   test("does not fire when the provider omits `usage`", async () => {
@@ -409,7 +419,7 @@ describe("openai-compat provider — onUsage callback", () => {
       const snapshots: Record<string, unknown>[] = [];
       const p = createOpenAICompatProvider({
         name: "no-usage",
-        baseUrl: `http://127.0.0.1:${noUsagePort}/v1`,
+        baseUrl: `http://127.0.0.1:${String(noUsagePort)}/v1`,
         apiKey: "sk",
         onUsage: (s) => {
           snapshots.push({ ...s });
@@ -421,14 +431,14 @@ describe("openai-compat provider — onUsage callback", () => {
       });
       expect(snapshots).toHaveLength(0);
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 
   test("onUsage throw does not bleed into the response path", async () => {
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: () => {
         throw new Error("logger boom");
@@ -445,7 +455,7 @@ describe("openai-compat provider — onUsage callback", () => {
     const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: (s) => {
         snapshots.push({ ...s });
@@ -456,16 +466,16 @@ describe("openai-compat provider — onUsage callback", () => {
       input: "abc",
     });
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]!.kind).toBe("embedding");
-    expect(snapshots[0]!.completion_tokens).toBe(0);
-    expect(snapshots[0]!.prompt_tokens).toBe(3); // input length
+    expect(snapshots[0]!["kind"]).toBe("embedding");
+    expect(snapshots[0]!["completion_tokens"]).toBe(0);
+    expect(snapshots[0]!["prompt_tokens"]).toBe(3); // input length
   });
 
   test("fires on streaming when upstream emits a usage frame", async () => {
     const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: (s) => {
         snapshots.push({ ...s });
@@ -481,16 +491,16 @@ describe("openai-compat provider — onUsage callback", () => {
       void _ev;
     }
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]!.prompt_tokens).toBe(4);
-    expect(snapshots[0]!.completion_tokens).toBe(2);
-    expect(snapshots[0]!.total_tokens).toBe(6);
+    expect(snapshots[0]!["prompt_tokens"]).toBe(4);
+    expect(snapshots[0]!["completion_tokens"]).toBe(2);
+    expect(snapshots[0]!["total_tokens"]).toBe(6);
   });
 
   test("does NOT fire on streaming when upstream omits the usage frame", async () => {
     const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: (s) => {
         snapshots.push({ ...s });
@@ -511,7 +521,7 @@ describe("openai-compat — onUsageObservation callback", () => {
     const { observations, onUsageObservation } = collectObservations();
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsageObservation,
     });
@@ -526,18 +536,18 @@ describe("openai-compat — onUsageObservation callback", () => {
     expect(o.kind).toBe("chat");
     expect(typeof o.latency_ms).toBe("number");
     const obs = o.observation!;
-    expect(obs.source).toBe("observed");
-    expect(obs.input_tokens).toBe(2);
-    expect(obs.output_tokens).toBe(1);
-    expect(obs.total_tokens).toBe(3);
-    expect(obs.upstream_request_id).toBe("chatcmpl-stub");
+    expect(obs["source"]).toBe("observed");
+    expect(obs["input_tokens"]).toBe(2);
+    expect(obs["output_tokens"]).toBe(1);
+    expect(obs["total_tokens"]).toBe(3);
+    expect(obs["upstream_request_id"]).toBe("chatcmpl-stub");
   });
 
   test("nonstream: missing usage → source unknown with no counts", async () => {
     const server = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
-      async fetch(req) {
+      fetch(req) {
         const url = new URL(req.url);
         if (url.pathname === "/v1/chat/completions") {
           return Response.json({
@@ -561,7 +571,7 @@ describe("openai-compat — onUsageObservation callback", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "no-usage",
-        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(server.port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -571,12 +581,12 @@ describe("openai-compat — onUsageObservation callback", () => {
       });
       expect(observations).toHaveLength(1);
       const obs = observations[0]!.observation!;
-      expect(obs.source).toBe("unknown");
-      expect(obs.input_tokens).toBeUndefined();
-      expect(obs.output_tokens).toBeUndefined();
-      expect(obs.total_tokens).toBeUndefined();
+      expect(obs["source"]).toBe("unknown");
+      expect(obs["input_tokens"]).toBeUndefined();
+      expect(obs["output_tokens"]).toBeUndefined();
+      expect(obs["total_tokens"]).toBeUndefined();
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 
@@ -584,7 +594,7 @@ describe("openai-compat — onUsageObservation callback", () => {
     const { observations, onUsageObservation } = collectObservations();
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsageObservation,
     });
@@ -602,7 +612,7 @@ describe("openai-compat — onUsageObservation callback", () => {
     const snapshots: Record<string, unknown>[] = [];
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsage: (s) => {
         snapshots.push({ ...s });
@@ -620,13 +630,13 @@ describe("openai-compat — onUsageObservation callback", () => {
     // Upstream emitted a `choices: []` + `usage` frame (see fixture).
     expect(observations).toHaveLength(1);
     const obs = observations[0]!.observation!;
-    expect(obs.source).toBe("observed");
-    expect(obs.input_tokens).toBe(4);
-    expect(obs.output_tokens).toBe(2);
-    expect(obs.total_tokens).toBe(6);
+    expect(obs["source"]).toBe("observed");
+    expect(obs["input_tokens"]).toBe(4);
+    expect(obs["output_tokens"]).toBe(2);
+    expect(obs["total_tokens"]).toBe(6);
     // Legacy onUsage path unchanged.
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]!.total_tokens).toBe(6);
+    expect(snapshots[0]!["total_tokens"]).toBe(6);
   });
 
   test("stream: partial usage frame reports only present counts — no fabricated zeros", async () => {
@@ -641,7 +651,7 @@ describe("openai-compat — onUsageObservation callback", () => {
         const body = (await req.json()) as { model: string };
         const enc = new TextEncoder();
         const stream = new ReadableStream({
-          start(controller) {
+          start(controller): void {
             controller.enqueue(
               enc.encode(
                 `data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"${body.model}","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}\n\n`,
@@ -668,7 +678,7 @@ describe("openai-compat — onUsageObservation callback", () => {
       const snapshots: Record<string, unknown>[] = [];
       const p = createOpenAICompatProvider({
         name: "partial",
-        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(server.port)}/v1`,
         apiKey: "sk",
         onUsage: (s) => {
           snapshots.push({ ...s });
@@ -683,17 +693,17 @@ describe("openai-compat — onUsageObservation callback", () => {
       }
       expect(observations).toHaveLength(1);
       const obs = observations[0]!.observation!;
-      expect(obs.source).toBe("observed");
-      expect(obs.input_tokens).toBe(5);
-      expect(obs.output_tokens).toBeUndefined();
-      expect(obs.total_tokens).toBeUndefined();
+      expect(obs["source"]).toBe("observed");
+      expect(obs["input_tokens"]).toBe(5);
+      expect(obs["output_tokens"]).toBeUndefined();
+      expect(obs["total_tokens"]).toBeUndefined();
       // Legacy onUsage keeps its zero-fill contract.
       expect(snapshots).toHaveLength(1);
-      expect(snapshots[0]!.prompt_tokens).toBe(5);
-      expect(snapshots[0]!.completion_tokens).toBe(0);
-      expect(snapshots[0]!.total_tokens).toBe(0);
+      expect(snapshots[0]!["prompt_tokens"]).toBe(5);
+      expect(snapshots[0]!["completion_tokens"]).toBe(0);
+      expect(snapshots[0]!["total_tokens"]).toBe(0);
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 
@@ -701,7 +711,7 @@ describe("openai-compat — onUsageObservation callback", () => {
     const { observations, onUsageObservation } = collectObservations();
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsageObservation,
     });
@@ -713,15 +723,15 @@ describe("openai-compat — onUsageObservation callback", () => {
     }
     expect(observations).toHaveLength(1);
     const obs = observations[0]!.observation!;
-    expect(obs.source).toBe("unknown");
-    expect(obs.input_tokens).toBeUndefined();
+    expect(obs["source"]).toBe("unknown");
+    expect(obs["input_tokens"]).toBeUndefined();
   });
 
   test("embeddings: reports only the counts the upstream sent", async () => {
     const { observations, onUsageObservation } = collectObservations();
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsageObservation,
     });
@@ -733,11 +743,11 @@ describe("openai-compat — onUsageObservation callback", () => {
     const o = observations[0]!;
     expect(o.kind).toBe("embedding");
     const obs = o.observation!;
-    expect(obs.source).toBe("observed");
-    expect(obs.input_tokens).toBe(3);
-    expect(obs.total_tokens).toBe(3);
+    expect(obs["source"]).toBe("observed");
+    expect(obs["input_tokens"]).toBe(3);
+    expect(obs["total_tokens"]).toBe(3);
     // Upstream sent no completion count — must stay absent, not 0.
-    expect(obs.output_tokens).toBeUndefined();
+    expect(obs["output_tokens"]).toBeUndefined();
   });
 
   test("stream: cumulative usage on every chunk → exactly one observation, last frame wins", async () => {
@@ -751,7 +761,7 @@ describe("openai-compat — onUsageObservation callback", () => {
       const snapshots: Record<string, unknown>[] = [];
       const p = createOpenAICompatProvider({
         name: "cumulative",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsage: (s) => {
           snapshots.push({ ...s });
@@ -766,10 +776,10 @@ describe("openai-compat — onUsageObservation callback", () => {
       }
       expect(observations).toHaveLength(1);
       const obs = observations[0]!.observation!;
-      expect(obs.source).toBe("observed");
-      expect(obs.input_tokens).toBe(1);
-      expect(obs.output_tokens).toBe(2);
-      expect(obs.total_tokens).toBe(3);
+      expect(obs["source"]).toBe("observed");
+      expect(obs["input_tokens"]).toBe(1);
+      expect(obs["output_tokens"]).toBe(2);
+      expect(obs["total_tokens"]).toBe(3);
       // The legacy onUsage contract is unchanged: one call per usage frame.
       expect(snapshots).toHaveLength(2);
     } finally {
@@ -785,7 +795,7 @@ describe("openai-compat — onUsageObservation callback", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "brk",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -798,10 +808,10 @@ describe("openai-compat — onUsageObservation callback", () => {
       }
       expect(observations).toHaveLength(1);
       const obs = observations[0]!.observation!;
-      expect(obs.source).toBe("observed");
-      expect(obs.input_tokens).toBe(3);
-      expect(obs.output_tokens).toBe(1);
-      expect(obs.total_tokens).toBe(4);
+      expect(obs["source"]).toBe("observed");
+      expect(obs["input_tokens"]).toBe(3);
+      expect(obs["output_tokens"]).toBe(1);
+      expect(obs["total_tokens"]).toBe(4);
     } finally {
       stop();
     }
@@ -815,7 +825,7 @@ describe("openai-compat — onUsageObservation callback", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "brk",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -827,7 +837,7 @@ describe("openai-compat — onUsageObservation callback", () => {
         break;
       }
       expect(observations).toHaveLength(1);
-      expect(observations[0]!.observation!.source).toBe("unknown");
+      expect(observations[0]!.observation!["source"]).toBe("unknown");
     } finally {
       stop();
     }
@@ -843,7 +853,7 @@ describe("openai-compat — onUsageObservation callback", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "err",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -857,9 +867,9 @@ describe("openai-compat — onUsageObservation callback", () => {
       expect(events[events.length - 1]!.type).toBe("error");
       expect(observations).toHaveLength(1);
       const obs = observations[0]!.observation!;
-      expect(obs.source).toBe("observed");
-      expect(obs.input_tokens).toBe(2);
-      expect(obs.total_tokens).toBe(3);
+      expect(obs["source"]).toBe("observed");
+      expect(obs["input_tokens"]).toBe(2);
+      expect(obs["total_tokens"]).toBe(3);
     } finally {
       stop();
     }
@@ -874,7 +884,7 @@ describe("openai-compat — onUsageObservation callback", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "eof",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -885,7 +895,7 @@ describe("openai-compat — onUsageObservation callback", () => {
         void ev;
       }
       expect(observations).toHaveLength(1);
-      expect(observations[0]!.observation!.source).toBe("unknown");
+      expect(observations[0]!.observation!["source"]).toBe("unknown");
     } finally {
       stop();
     }
@@ -900,7 +910,7 @@ describe("openai-compat — onUsageObservation callback", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "empty-usage",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -912,10 +922,10 @@ describe("openai-compat — onUsageObservation callback", () => {
       }
       expect(observations).toHaveLength(1);
       const obs = observations[0]!.observation!;
-      expect(obs.source).toBe("unknown");
-      expect(obs.input_tokens).toBeUndefined();
-      expect(obs.output_tokens).toBeUndefined();
-      expect(obs.total_tokens).toBeUndefined();
+      expect(obs["source"]).toBe("unknown");
+      expect(obs["input_tokens"]).toBeUndefined();
+      expect(obs["output_tokens"]).toBeUndefined();
+      expect(obs["total_tokens"]).toBeUndefined();
     } finally {
       stop();
     }
@@ -924,7 +934,7 @@ describe("openai-compat — onUsageObservation callback", () => {
   test("a throwing onUsageObservation is swallowed — createResponse still resolves", async () => {
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsageObservation: () => {
         throw new Error("sink boom");
@@ -940,7 +950,7 @@ describe("openai-compat — onUsageObservation callback", () => {
   test("a throwing onUsageObservation is swallowed — stream still completes", async () => {
     const p = createOpenAICompatProvider({
       name: "stub",
-      baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/v1`,
+      baseUrl: `http://127.0.0.1:${String(UPSTREAM_PORT)}/v1`,
       apiKey: "sk-test",
       onUsageObservation: () => {
         throw new Error("sink boom");
@@ -967,13 +977,15 @@ describe("openai-compat — ProviderExecutionContext (nonstream cancellation)", 
         req.signal.addEventListener("abort", () => {
           serverAborted = true;
         });
-        return new Promise<Response>(() => {});
+        return new Promise<Response>(() => {
+          /* The pending response exercises cancellation without a timeout. */
+        });
       },
     });
     try {
       const p = createOpenAICompatProvider({
         name: "hang",
-        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(server.port)}/v1`,
         apiKey: "sk",
       });
       const ac = new AbortController();
@@ -984,7 +996,7 @@ describe("openai-compat — ProviderExecutionContext (nonstream cancellation)", 
         )
         .then(
           () => "resolved" as const,
-          (e) => `rejected:${(e as Error).name}`,
+          (e: unknown) => `rejected:${(e as Error).name}`,
         );
       await sleep(60);
       ac.abort();
@@ -993,7 +1005,7 @@ describe("openai-compat — ProviderExecutionContext (nonstream cancellation)", 
       await sleep(80);
       expect(serverAborted).toBe(true);
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 
@@ -1006,13 +1018,15 @@ describe("openai-compat — ProviderExecutionContext (nonstream cancellation)", 
         req.signal.addEventListener("abort", () => {
           serverAborted = true;
         });
-        return new Promise<Response>(() => {});
+        return new Promise<Response>(() => {
+          /* The pending response exercises cancellation without a timeout. */
+        });
       },
     });
     try {
       const p = createOpenAICompatProvider({
         name: "hang",
-        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(server.port)}/v1`,
         apiKey: "sk",
       });
       const outcomeP = p
@@ -1022,7 +1036,7 @@ describe("openai-compat — ProviderExecutionContext (nonstream cancellation)", 
         )
         .then(
           () => "resolved" as const,
-          (e) => `rejected:${(e as Error).name}`,
+          (e: unknown) => `rejected:${(e as Error).name}`,
         );
       const outcome = await Promise.race([outcomeP, sleep(1500).then(() => "pending" as const)]);
       // AbortSignal.timeout rejects with TimeoutError.
@@ -1030,7 +1044,7 @@ describe("openai-compat — ProviderExecutionContext (nonstream cancellation)", 
       await sleep(80);
       expect(serverAborted).toBe(true);
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 
@@ -1047,7 +1061,7 @@ describe("openai-compat — ProviderExecutionContext (nonstream cancellation)", 
     try {
       const p = createOpenAICompatProvider({
         name: "deadline",
-        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(server.port)}/v1`,
         apiKey: "sk",
       });
       const outcome = await p
@@ -1057,12 +1071,12 @@ describe("openai-compat — ProviderExecutionContext (nonstream cancellation)", 
         )
         .then(
           () => "resolved" as const,
-          (e) => `rejected:${(e as Error).name}`,
+          (e: unknown) => `rejected:${(e as Error).name}`,
         );
       expect(outcome).toBe("rejected:TimeoutError");
       expect(sawRequest).toBe(false);
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 
@@ -1075,13 +1089,15 @@ describe("openai-compat — ProviderExecutionContext (nonstream cancellation)", 
         req.signal.addEventListener("abort", () => {
           serverAborted = true;
         });
-        return new Promise<Response>(() => {});
+        return new Promise<Response>(() => {
+          /* The pending response exercises cancellation without a timeout. */
+        });
       },
     });
     try {
       const p = createOpenAICompatProvider({
         name: "hang",
-        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(server.port)}/v1`,
         apiKey: "sk",
       });
       const ac = new AbortController();
@@ -1096,7 +1112,7 @@ describe("openai-compat — ProviderExecutionContext (nonstream cancellation)", 
       await sleep(80);
       expect(serverAborted).toBe(true);
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 });
@@ -1110,7 +1126,7 @@ describe("openai-compat — stream caller abort", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "abort",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -1125,8 +1141,8 @@ describe("openai-compat — stream caller abort", () => {
       const pending = it.next();
       ac.abort();
       const outcome = await pending.then(
-        (r) => `resolved:${r.done}`,
-        (e) => `threw:${(e as Error).name}`,
+        (r) => `resolved:${String(r.done)}`,
+        (e: unknown) => `threw:${(e as Error).name}`,
       );
       expect(outcome).toBe("threw:AbortError");
       expect(yielded.map((e) => e.type)).toEqual(["chunk"]);
@@ -1144,7 +1160,7 @@ describe("openai-compat — stream caller abort", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "abort",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -1159,8 +1175,8 @@ describe("openai-compat — stream caller abort", () => {
       // The generator is now suspended at the chunk's yield.
       ac.abort();
       const outcome = await it.next().then(
-        (r) => `resolved:${r.done}`,
-        (e) => `threw:${(e as Error).name}`,
+        (r) => `resolved:${String(r.done)}`,
+        (e: unknown) => `threw:${(e as Error).name}`,
       );
       expect(outcome).toBe("threw:AbortError");
       expect(yielded.map((e) => e.type)).toEqual(["chunk"]);
@@ -1182,7 +1198,7 @@ describe("openai-compat — stream client-return cleanup", () => {
           released = true;
         });
         const stream = new ReadableStream({
-          start(controller) {
+          start(controller): void {
             const enc = new TextEncoder();
             controller.enqueue(
               enc.encode(
@@ -1191,7 +1207,7 @@ describe("openai-compat — stream client-return cleanup", () => {
             );
             // Stream stays open — no [DONE], no more data.
           },
-          cancel() {
+          cancel(): void {
             released = true;
           },
         });
@@ -1204,7 +1220,7 @@ describe("openai-compat — stream client-return cleanup", () => {
     try {
       const p = createOpenAICompatProvider({
         name: "stream-hang",
-        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(server.port)}/v1`,
         apiKey: "sk",
       });
       for await (const ev of p.streamResponse?.({
@@ -1217,7 +1233,7 @@ describe("openai-compat — stream client-return cleanup", () => {
       await sleep(400);
       expect(released).toBe(true);
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 });
@@ -1299,7 +1315,7 @@ describe("openai-compat — stream terminal evidence", () => {
     try {
       const p = createOpenAICompatProvider({
         name: "err",
-        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(server.port)}/v1`,
         apiKey: "sk",
       });
       const events: UnifiedStreamEvent[] = [];
@@ -1318,7 +1334,7 @@ describe("openai-compat — stream terminal evidence", () => {
         expect((d as unknown as { completion?: string }).completion).not.toBe("upstream");
       }
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 
@@ -1453,7 +1469,7 @@ describe("openai-compat — abort with buffered terminal frames", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "abort-done",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -1467,8 +1483,9 @@ describe("openai-compat — abort with buffered terminal frames", () => {
       if (!first.done) yielded.push(first.value);
       ac.abort();
       const outcome = await it.next().then(
-        (r) => `resolved:${r.done}:${(r.value as { type?: string } | undefined)?.type}`,
-        (e) => `threw:${(e as Error).name}`,
+        (r) =>
+          `resolved:${String(r.done)}:${String((r.value as { type?: string } | undefined)?.type)}`,
+        (e: unknown) => `threw:${(e as Error).name}`,
       );
       expect(outcome).toBe("threw:AbortError");
       expect(yielded.map((e) => e.type)).toEqual(["chunk"]);
@@ -1486,7 +1503,7 @@ describe("openai-compat — abort with buffered terminal frames", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "abort-err",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -1500,8 +1517,9 @@ describe("openai-compat — abort with buffered terminal frames", () => {
       if (!first.done) yielded.push(first.value);
       ac.abort();
       const outcome = await it.next().then(
-        (r) => `resolved:${r.done}:${(r.value as { type?: string } | undefined)?.type}`,
-        (e) => `threw:${(e as Error).name}`,
+        (r) =>
+          `resolved:${String(r.done)}:${String((r.value as { type?: string } | undefined)?.type)}`,
+        (e: unknown) => `threw:${(e as Error).name}`,
       );
       expect(outcome).toBe("threw:AbortError");
       expect(yielded.map((e) => e.type)).toEqual(["chunk"]);
@@ -1521,7 +1539,7 @@ describe("openai-compat — abort with buffered terminal frames", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "abort-resid",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -1535,8 +1553,9 @@ describe("openai-compat — abort with buffered terminal frames", () => {
       if (!first.done) yielded.push(first.value);
       ac.abort();
       const outcome = await it.next().then(
-        (r) => `resolved:${r.done}:${(r.value as { type?: string } | undefined)?.type}`,
-        (e) => `threw:${(e as Error).name}`,
+        (r) =>
+          `resolved:${String(r.done)}:${String((r.value as { type?: string } | undefined)?.type)}`,
+        (e: unknown) => `threw:${(e as Error).name}`,
       );
       expect(outcome).toBe("threw:AbortError");
       expect(yielded.map((e) => e.type)).toEqual(["chunk"]);
@@ -1622,7 +1641,7 @@ describe("openai-compat — error frame usage/content capture", () => {
       const { observations, onUsageObservation } = collectObservations();
       const p = createOpenAICompatProvider({
         name: "err-usage",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsageObservation,
       });
@@ -1636,10 +1655,10 @@ describe("openai-compat — error frame usage/content capture", () => {
       expect(events.map((e) => e.type)).toEqual(["error"]);
       expect(observations).toHaveLength(1);
       const obs = observations[0]!.observation!;
-      expect(obs.source).toBe("observed");
-      expect(obs.input_tokens).toBe(5);
-      expect(obs.output_tokens).toBe(2);
-      expect(obs.total_tokens).toBe(7);
+      expect(obs["source"]).toBe("observed");
+      expect(obs["input_tokens"]).toBe(5);
+      expect(obs["output_tokens"]).toBe(2);
+      expect(obs["total_tokens"]).toBe(7);
     } finally {
       stop();
     }
@@ -1675,7 +1694,7 @@ describe("openai-compat — usage last-wins", () => {
       const snapshots: Record<string, unknown>[] = [];
       const p = createOpenAICompatProvider({
         name: "last-wins",
-        baseUrl: `http://127.0.0.1:${port}/v1`,
+        baseUrl: `http://127.0.0.1:${String(port)}/v1`,
         apiKey: "sk",
         onUsage: (s) => {
           snapshots.push({ ...s });
@@ -1690,10 +1709,10 @@ describe("openai-compat — usage last-wins", () => {
       }
       expect(observations).toHaveLength(1);
       const obs = observations[0]!.observation!;
-      expect(obs.source).toBe("observed");
-      expect(obs.input_tokens).toBe(5);
-      expect(obs.output_tokens).toBe(2);
-      expect(obs.total_tokens).toBe(7);
+      expect(obs["source"]).toBe("observed");
+      expect(obs["input_tokens"]).toBe(5);
+      expect(obs["output_tokens"]).toBe(2);
+      expect(obs["total_tokens"]).toBe(7);
       // Legacy onUsage still fires once per usage frame, count-less
       // frames included.
       expect(snapshots).toHaveLength(2);
@@ -1710,7 +1729,7 @@ describe("openai-compat — observation ordering", () => {
     const order: string[] = [];
     const p = createOpenAICompatProvider({
       name: "ord",
-      baseUrl: `http://127.0.0.1:${port}/v1`,
+      baseUrl: `http://127.0.0.1:${String(port)}/v1`,
       apiKey: "sk",
       onUsageObservation: () => {
         order.push("observation");
@@ -1777,13 +1796,13 @@ describe("openai-compat — null-body stream response", () => {
   ): ReturnType<typeof createOpenAICompatProvider> {
     return createOpenAICompatProvider({
       name: "nullbody",
-      baseUrl: `http://127.0.0.1:${port}/v1`,
+      baseUrl: `http://127.0.0.1:${String(port)}/v1`,
       apiKey: "sk",
       fetch: (async (...args: Parameters<typeof globalThis.fetch>) => {
         const res = await globalThis.fetch(...args);
         return new Response(null, { status: res.status });
       }) as typeof globalThis.fetch,
-      onUsageObservation,
+      ...(onUsageObservation ? { onUsageObservation } : {}),
     });
   }
 

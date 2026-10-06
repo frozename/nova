@@ -1,3 +1,5 @@
+import type { ReadableStreamDefaultReader } from "node:stream/web";
+
 import { z } from "zod";
 
 import type { AiProvider, ProviderExecutionContext } from "../provider.js";
@@ -227,6 +229,18 @@ function isWireError(err: unknown): boolean {
   return e.message !== undefined || e.type !== undefined || e.code !== undefined;
 }
 
+function renderWireCode(code: unknown): string | undefined {
+  if (typeof code === "string") return code;
+  if (
+    typeof code === "number" ||
+    typeof code === "boolean" ||
+    typeof code === "bigint" ||
+    typeof code === "symbol"
+  )
+    return String(code);
+  return code === null ? undefined : JSON.stringify(code);
+}
+
 /**
  * Translate a mid-stream `{"error": …}` payload member into the
  * unified error-event shape. OpenAI-style upstreams deliver errors
@@ -244,8 +258,7 @@ function wireErrorToEvent(err: unknown): {
   } else if (err !== null && typeof err === "object") {
     const e = err as { message?: unknown; code?: unknown; type?: unknown };
     message = typeof e.message === "string" ? e.message : JSON.stringify(err);
-    const rawCode = e.code ?? e.type;
-    if (rawCode !== null && rawCode !== undefined) code = String(rawCode);
+    code = renderWireCode(e.code ?? e.type);
   } else {
     message = String(err);
   }
@@ -310,12 +323,24 @@ const UsageBlockSchema = z.looseObject({
   total_tokens: z.number().optional(),
 });
 
+function pickWireUsage(usage: z.infer<typeof UsageBlockSchema> | undefined): WireUsage | undefined {
+  if (!usage) return undefined;
+  return {
+    ...(typeof usage.prompt_tokens === "number" ? { prompt_tokens: usage.prompt_tokens } : {}),
+    ...(typeof usage.completion_tokens === "number"
+      ? { completion_tokens: usage.completion_tokens }
+      : {}),
+    ...(typeof usage.total_tokens === "number" ? { total_tokens: usage.total_tokens } : {}),
+  };
+}
+
 const ResponseEnvelopeSchema = z.looseObject({
   id: z.string().optional(),
   model: z.string().optional(),
   usage: UsageBlockSchema.optional(),
 });
 
+// eslint-disable-next-line max-lines-per-function -- The provider methods share request and telemetry closures for one configured upstream.
 export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvider {
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const base = trimTrailingSlash(opts.baseUrl);
@@ -414,12 +439,12 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         model,
         kind: "chat",
         latency_ms: latencyMs,
-        observation: toObservation(usage, envelope?.id || undefined),
+        observation: toObservation(pickWireUsage(usage), envelope?.id),
         ...contextIdentity(context),
       });
       return {
         ...raw,
-        ...(raw.choices
+        ...(Array.isArray(raw.choices)
           ? {
               choices: raw.choices.map((choice) => ({
                 ...choice,
@@ -434,6 +459,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       };
     },
 
+    // eslint-disable-next-line max-lines-per-function, sonarjs/cognitive-complexity -- The SSE loop keeps ordered yields, caller abort checks, and cleanup in one generator scope.
     async *streamResponse(
       request: UnifiedAiRequest,
       signal?: AbortSignal,
@@ -481,7 +507,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
       }
       type DoneEvent = Extract<UnifiedStreamEvent, { type: "done" }>;
       let lastFinish: DoneEvent = { type: "done", finish_reason: "stop" };
-      let sawFinish = false;
+      const completionState = { sawFinish: false };
       let lastUsage: WireUsage | undefined;
       let lastModel = request.model;
       let lastId = "";
@@ -514,7 +540,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         }
         return;
       }
-      const reader = res.body.getReader();
+      const reader = res.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
       const decoder = new TextDecoder();
       let buffer = "";
       type FrameOutcome = {
@@ -571,7 +597,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
           if (chunk.choices && chunk.choices.length > 0) {
             const finish = chunk.choices[0]?.finish_reason;
             if (finish) {
-              sawFinish = true;
+              completionState.sawFinish = true;
               lastFinish = {
                 type: "done",
                 finish_reason: mapFinishReason(finish),
@@ -679,7 +705,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         throwIfCallerAborted();
         yield {
           ...lastFinish,
-          completion: sawFinish ? "upstream" : "eof",
+          completion: completionState.sawFinish ? "upstream" : "eof",
         };
         throwIfCallerAborted();
       } finally {
@@ -734,7 +760,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         model,
         kind: "embedding",
         latency_ms: latencyMs,
-        observation: toObservation(usage, undefined),
+        observation: toObservation(pickWireUsage(usage), undefined),
         ...contextIdentity(context),
       });
       return {
@@ -751,7 +777,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         throw new Error(`${opts.name} /models ${String(res.status)}: ${text.slice(0, 500)}`);
       }
       const raw = (await res.json()) as {
-        data?: { id?: string; created?: number; owned_by?: string }[];
+        data?: { id?: string | number; created?: number; owned_by?: string }[];
       };
       const now = Math.floor(Date.now() / 1000);
       return (raw.data ?? []).map((m) => ({

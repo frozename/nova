@@ -85,13 +85,13 @@ describe("UsageRecordSchema", () => {
 
 // Accessed via the namespace so a missing export fails these tests on a
 // real assertion (toBeDefined) rather than a module-load error.
-const UsageObservationV1Schema = (nova as Record<string, unknown>).UsageObservationV1Schema as
+const UsageObservationV1Schema = (nova as Record<string, unknown>)["UsageObservationV1Schema"] as
   | { parse(v: unknown): Record<string, unknown> }
   | undefined;
-const UsageRecordV2Schema = (nova as Record<string, unknown>).UsageRecordV2Schema as
+const UsageRecordV2Schema = (nova as Record<string, unknown>)["UsageRecordV2Schema"] as
   | { parse(v: unknown): Record<string, unknown> }
   | undefined;
-const projectUsageRecordV2ToV1 = (nova as Record<string, unknown>).projectUsageRecordV2ToV1 as
+const projectUsageRecordV2ToV1 = (nova as Record<string, unknown>)["projectUsageRecordV2ToV1"] as
   | ((v: unknown) => UsageRecord | null)
   | undefined;
 
@@ -107,10 +107,10 @@ describe("UsageObservationV1Schema", () => {
       output_tokens: 4,
       total_tokens: 14,
     });
-    expect(parsed?.source).toBe("observed");
-    expect(parsed?.input_tokens).toBe(10);
-    expect(parsed?.output_tokens).toBe(4);
-    expect(parsed?.total_tokens).toBe(14);
+    expect(parsed?.["source"]).toBe("observed");
+    expect(parsed?.["input_tokens"]).toBe(10);
+    expect(parsed?.["output_tokens"]).toBe(4);
+    expect(parsed?.["total_tokens"]).toBe(14);
   });
 
   test("observed may carry only partial counts (no forced completeness)", () => {
@@ -118,9 +118,9 @@ describe("UsageObservationV1Schema", () => {
       source: "observed",
       input_tokens: 7,
     });
-    expect(parsed?.input_tokens).toBe(7);
-    expect(parsed?.output_tokens).toBeUndefined();
-    expect(parsed?.total_tokens).toBeUndefined();
+    expect(parsed?.["input_tokens"]).toBe(7);
+    expect(parsed?.["output_tokens"]).toBeUndefined();
+    expect(parsed?.["total_tokens"]).toBeUndefined();
   });
 
   test("optional attribution fields round-trip", () => {
@@ -136,17 +136,17 @@ describe("UsageObservationV1Schema", () => {
       pricing_revision: "2026-09-01",
       upstream_request_id: "chatcmpl-abc",
     });
-    expect(parsed?.cache_read_tokens).toBe(3);
-    expect(parsed?.cache_write_tokens).toBe(2);
-    expect(parsed?.cost).toBe(0.0042);
-    expect(parsed?.currency).toBe("USD");
-    expect(parsed?.pricing_revision).toBe("2026-09-01");
-    expect(parsed?.upstream_request_id).toBe("chatcmpl-abc");
+    expect(parsed?.["cache_read_tokens"]).toBe(3);
+    expect(parsed?.["cache_write_tokens"]).toBe(2);
+    expect(parsed?.["cost"]).toBe(0.0042);
+    expect(parsed?.["currency"]).toBe("USD");
+    expect(parsed?.["pricing_revision"]).toBe("2026-09-01");
+    expect(parsed?.["upstream_request_id"]).toBe("chatcmpl-abc");
   });
 
   test("'unknown' parses bare — no counts required", () => {
     const parsed = UsageObservationV1Schema?.parse({ source: "unknown" });
-    expect(parsed?.source).toBe("unknown");
+    expect(parsed?.["source"]).toBe("unknown");
   });
 
   test("'unknown' rejects invented counts (schema-enforced)", () => {
@@ -175,7 +175,7 @@ describe("UsageObservationV1Schema", () => {
       source: "unknown",
       upstream_request_id: "chatcmpl-xyz",
     });
-    expect(parsed?.upstream_request_id).toBe("chatcmpl-xyz");
+    expect(parsed?.["upstream_request_id"]).toBe("chatcmpl-xyz");
   });
 
   test("rejects a bad source", () => {
