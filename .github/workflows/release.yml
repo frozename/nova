@@ -264,7 +264,7 @@ jobs:
         run: bun run lint
 
       - name: Test (every suite, through the check.yml test gate)
-        run: bun scripts/bun-test-gate.ts packages/contracts/test packages/mcp-shared/test packages/mcp/test scripts/lint
+        run: bun scripts/bun-test-gate.ts packages/contracts/test packages/mcp-shared/test packages/mcp/test packages/exec-primitives/test scripts/lint
 
       - name: Pack and check the entry points and dependency specs
         env:
