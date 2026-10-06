@@ -1,17 +1,10 @@
-import type {
-  AiProvider,
-  UnifiedAiRequest,
-  UnifiedAiResponse,
-} from '@nova/contracts';
-import type {
-  PlannerExecutor,
-  PlannerExecutorInput,
-  PlannerExecutorResult,
-} from './executor.js';
+import type { AiProvider, UnifiedAiRequest, UnifiedAiResponse } from "@novaproto/contracts";
+
+import type { PlannerExecutor, PlannerExecutorInput, PlannerExecutorResult } from "./executor.js";
 
 /**
  * Real LLM-backed PlannerExecutor. Wraps any `AiProvider` (from
- * `@nova/contracts`) — OpenAI, Anthropic, Together, a local
+ * `@novaproto/contracts`) — OpenAI, Anthropic, Together, a local
  * llama.cpp served via Nova's `createOpenAICompatProvider`, a
  * sirius-gateway upstream — and turns a planner prompt into a
  * single chat completion call.
@@ -57,23 +50,19 @@ function defaultRequestId(): string {
   return `planner-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function extractToolCall(
-  response: UnifiedAiResponse,
-): { arguments: string } | null {
+function extractToolCall(response: UnifiedAiResponse): { arguments: string } | null {
   const choice = response.choices[0];
   if (!choice) return null;
   const toolCalls = choice.message.tool_calls ?? [];
   for (const tc of toolCalls) {
-    if (tc.function.name === 'submit_plan') {
+    if (tc.function.name === "submit_plan") {
       return { arguments: tc.function.arguments };
     }
   }
   return null;
 }
 
-export function createLlmExecutor(
-  opts: CreateLlmExecutorOptions,
-): PlannerExecutor {
+export function createLlmExecutor(opts: CreateLlmExecutorOptions): PlannerExecutor {
   const requestId = opts.requestId ?? defaultRequestId;
   return {
     name: `llm:${opts.provider.name}:${opts.model}`,
@@ -81,14 +70,14 @@ export function createLlmExecutor(
       const request: UnifiedAiRequest = {
         model: opts.model,
         messages: [
-          { role: 'system', content: input.systemMessage },
-          { role: 'user', content: input.userMessage },
+          { role: "system", content: input.systemMessage },
+          { role: "user", content: input.userMessage },
         ],
         temperature: opts.temperature ?? 0.2,
         max_tokens: opts.maxTokens ?? 2048,
         tools: [
           {
-            type: 'function',
+            type: "function",
             function: {
               name: input.submitPlanFunction.name,
               description: input.submitPlanFunction.description,
@@ -97,7 +86,7 @@ export function createLlmExecutor(
           },
         ],
         tool_choice: {
-          type: 'function',
+          type: "function",
           function: { name: input.submitPlanFunction.name },
         },
       };
@@ -115,22 +104,22 @@ export function createLlmExecutor(
       } catch (err) {
         return {
           ok: false,
-          reason: 'model-error',
-          message: (err as Error).message || 'provider.createResponse threw',
+          reason: "model-error",
+          message: (err as Error).message || "provider.createResponse threw",
         };
       }
 
       const toolCall = extractToolCall(response);
       if (!toolCall) {
-        const finish = response.choices[0]?.finish_reason ?? 'unknown';
+        const finish = response.choices[0]?.finish_reason ?? "unknown";
         const textFallback =
-          typeof response.choices[0]?.message.content === 'string'
-            ? (response.choices[0].message.content as string).slice(0, 300)
-            : '';
+          typeof response.choices[0]?.message.content === "string"
+            ? response.choices[0].message.content.slice(0, 300)
+            : "";
         return {
           ok: false,
-          reason: 'no-tool-call',
-          message: `model returned ${finish} without a submit_plan tool call${textFallback ? `: ${textFallback}` : ''}`,
+          reason: "no-tool-call",
+          message: `model returned ${finish} without a submit_plan tool call${textFallback ? `: ${textFallback}` : ""}`,
           trace: { finishReason: finish, model: response.model },
         };
       }
@@ -141,7 +130,7 @@ export function createLlmExecutor(
       } catch (err) {
         return {
           ok: false,
-          reason: 'parse-failed',
+          reason: "parse-failed",
           message: `submit_plan arguments are not valid JSON: ${(err as Error).message}`,
           trace: { rawArguments: toolCall.arguments.slice(0, 500) },
         };

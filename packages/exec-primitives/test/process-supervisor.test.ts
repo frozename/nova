@@ -20,7 +20,7 @@ import {
 
 describe("[B3] env boundary", () => {
   test("[B3] runProcess passes the host env verbatim and leaks nothing", async () => {
-    process.env.EXEC_PRIMITIVES_ENV_LEAK = "secret";
+    process.env["EXEC_PRIMITIVES_ENV_LEAK"] = "secret";
     const dir = makeTmpDir("env");
     try {
       const result = await lib.runProcess({
@@ -37,7 +37,7 @@ describe("[B3] env boundary", () => {
       expect(result.stdout).toContain(`HOME=${dir}`);
       expect(result.stdout).not.toContain("EXEC_PRIMITIVES_ENV_LEAK");
     } finally {
-      delete process.env.EXEC_PRIMITIVES_ENV_LEAK;
+      delete process.env["EXEC_PRIMITIVES_ENV_LEAK"];
       cleanupDir(dir);
     }
   });
@@ -92,6 +92,7 @@ describe("[B3] cwd boundary", () => {
         cancelGraceMs: 200,
         watchdogMs: 10_000,
       });
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- The directory is created by this test to verify the child working directory.
       expect(result.stdout.trim()).toBe(realpathSync(dir));
     } finally {
       cleanupDir(dir);
@@ -145,7 +146,7 @@ describe("[B3] cwd boundary", () => {
 describe("[B4] cancel grace", () => {
   for (const cancelGraceMs of [300, 2500] as const) {
     test(`[B4] SIGKILL lands inside (graceMs, graceMs+1500) at cancelGraceMs=${String(cancelGraceMs)}`, async () => {
-      process.env.HOST_CANCEL_GRACE_S = "60";
+      process.env["HOST_CANCEL_GRACE_S"] = "60";
       const dir = makeTmpDir("grace");
       const ac = new AbortController();
       let out = "";
@@ -180,7 +181,7 @@ describe("[B4] cancel grace", () => {
         expect(exit.signal).toBe("SIGKILL");
         expect(groupExists(proc.pgid)).toBe(false);
       } finally {
-        delete process.env.HOST_CANCEL_GRACE_S;
+        delete process.env["HOST_CANCEL_GRACE_S"];
         cleanupDir(dir);
       }
     });
@@ -190,7 +191,7 @@ describe("[B4] cancel grace", () => {
 describe("[B4] watchdog", () => {
   for (const watchdogMs of [400, 2500] as const) {
     test(`[B4] watchdog fires inside (watchdogMs, watchdogMs+1500) at watchdogMs=${String(watchdogMs)}`, async () => {
-      process.env.HOST_DISPATCH_TIMEOUT_S = "60";
+      process.env["HOST_DISPATCH_TIMEOUT_S"] = "60";
       const dir = makeTmpDir("watchdog");
       try {
         const t0 = Date.now();
@@ -215,7 +216,7 @@ describe("[B4] watchdog", () => {
         expect(exit.outcome).toBe("watchdog");
         expect(groupExists(proc.pgid)).toBe(false);
       } finally {
-        delete process.env.HOST_DISPATCH_TIMEOUT_S;
+        delete process.env["HOST_DISPATCH_TIMEOUT_S"];
         cleanupDir(dir);
       }
     });

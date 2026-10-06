@@ -50,6 +50,7 @@ export function releaseProblems(tag: string | undefined, manifest: ReleaseManife
 if (import.meta.main) {
   const tag = process.argv[2] ?? process.env["RELEASE_TAG"];
   const manifestPath = join(dirname(import.meta.dir), "package.json");
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The manifest path is fixed relative to this release script, never supplied by the caller.
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ReleaseManifest;
   const problems = releaseProblems(tag, manifest);
   if (problems.length > 0) {
@@ -58,7 +59,7 @@ if (import.meta.main) {
     }
     process.exit(1);
   }
-  console.log(
-    `release-check: ok, ${PACKAGE_NAME}@${String(manifest.version)} from tag ${String(tag)}`,
+  process.stdout.write(
+    `release-check: ok, ${PACKAGE_NAME}@${String(manifest.version)} from tag ${String(tag)}\n`,
   );
 }

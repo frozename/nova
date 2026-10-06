@@ -1,14 +1,15 @@
-import { describe, expect, test } from 'bun:test';
-import * as nova from '../src/index.js';
-import { UsageRecordSchema, type UsageRecord } from '../src/index.js';
+import { describe, expect, test } from "bun:test";
 
-describe('UsageRecordSchema', () => {
-  test('parses a minimal valid record', () => {
+import * as nova from "../src/index.js";
+import { type UsageRecord, UsageRecordSchema } from "../src/index.js";
+
+describe("UsageRecordSchema", () => {
+  test("parses a minimal valid record", () => {
     const record: UsageRecord = {
-      ts: '2026-04-18T12:00:00.000Z',
-      provider: 'openai',
-      model: 'gpt-4o-mini',
-      kind: 'chat',
+      ts: "2026-04-18T12:00:00.000Z",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      kind: "chat",
       prompt_tokens: 120,
       completion_tokens: 60,
       total_tokens: 180,
@@ -17,33 +18,33 @@ describe('UsageRecordSchema', () => {
     expect(UsageRecordSchema.parse(record)).toEqual(record);
   });
 
-  test('optional fields round-trip', () => {
+  test("optional fields round-trip", () => {
     const record = UsageRecordSchema.parse({
-      ts: '2026-04-18T12:00:00Z',
-      provider: 'anthropic',
-      model: 'claude-3-5',
-      kind: 'chat',
+      ts: "2026-04-18T12:00:00Z",
+      provider: "anthropic",
+      model: "claude-3-5",
+      kind: "chat",
       prompt_tokens: 1,
       completion_tokens: 2,
       total_tokens: 3,
       latency_ms: 10,
-      request_id: 'req_abc',
+      request_id: "req_abc",
       estimated_cost_usd: 0.00042,
-      user: 'alice',
-      route: 'fusion-private-first',
+      user: "alice",
+      route: "fusion-private-first",
     });
-    expect(record.request_id).toBe('req_abc');
+    expect(record.request_id).toBe("req_abc");
     expect(record.estimated_cost_usd).toBe(0.00042);
-    expect(record.route).toBe('fusion-private-first');
+    expect(record.route).toBe("fusion-private-first");
   });
 
-  test('rejects unknown kind', () => {
+  test("rejects unknown kind", () => {
     expect(() =>
       UsageRecordSchema.parse({
-        ts: 'x',
-        provider: 'x',
-        model: 'x',
-        kind: 'magic',
+        ts: "x",
+        provider: "x",
+        model: "x",
+        kind: "magic",
         prompt_tokens: 0,
         completion_tokens: 0,
         total_tokens: 0,
@@ -52,13 +53,13 @@ describe('UsageRecordSchema', () => {
     ).toThrow();
   });
 
-  test('rejects negative token counts', () => {
+  test("rejects negative token counts", () => {
     expect(() =>
       UsageRecordSchema.parse({
-        ts: '2026-04-18T12:00:00Z',
-        provider: 'x',
-        model: 'x',
-        kind: 'chat',
+        ts: "2026-04-18T12:00:00Z",
+        provider: "x",
+        model: "x",
+        kind: "chat",
         prompt_tokens: -1,
         completion_tokens: 0,
         total_tokens: 0,
@@ -67,12 +68,12 @@ describe('UsageRecordSchema', () => {
     ).toThrow();
   });
 
-  test('accepts zero-token records (adapters that return no usage)', () => {
+  test("accepts zero-token records (adapters that return no usage)", () => {
     const parsed = UsageRecordSchema.parse({
-      ts: '2026-04-18T12:00:00Z',
-      provider: 'self-hosted',
-      model: 'llama3',
-      kind: 'chat',
+      ts: "2026-04-18T12:00:00Z",
+      provider: "self-hosted",
+      model: "llama3",
+      kind: "chat",
       prompt_tokens: 0,
       completion_tokens: 0,
       total_tokens: 0,
@@ -84,183 +85,177 @@ describe('UsageRecordSchema', () => {
 
 // Accessed via the namespace so a missing export fails these tests on a
 // real assertion (toBeDefined) rather than a module-load error.
-const UsageObservationV1Schema = (nova as Record<string, unknown>)
-  .UsageObservationV1Schema as
+const UsageObservationV1Schema = (nova as Record<string, unknown>)["UsageObservationV1Schema"] as
   | { parse(v: unknown): Record<string, unknown> }
   | undefined;
-const UsageRecordV2Schema = (nova as Record<string, unknown>).UsageRecordV2Schema as
+const UsageRecordV2Schema = (nova as Record<string, unknown>)["UsageRecordV2Schema"] as
   | { parse(v: unknown): Record<string, unknown> }
   | undefined;
-const projectUsageRecordV2ToV1 = (nova as Record<string, unknown>)
-  .projectUsageRecordV2ToV1 as
+const projectUsageRecordV2ToV1 = (nova as Record<string, unknown>)["projectUsageRecordV2ToV1"] as
   | ((v: unknown) => UsageRecord | null)
   | undefined;
 
-describe('UsageObservationV1Schema', () => {
-  test('is exported', () => {
+describe("UsageObservationV1Schema", () => {
+  test("is exported", () => {
     expect(UsageObservationV1Schema).toBeDefined();
   });
 
-  test('observed round-trips with per-component counts', () => {
+  test("observed round-trips with per-component counts", () => {
     const parsed = UsageObservationV1Schema?.parse({
-      source: 'observed',
+      source: "observed",
       input_tokens: 10,
       output_tokens: 4,
       total_tokens: 14,
     });
-    expect(parsed?.source).toBe('observed');
-    expect(parsed?.input_tokens).toBe(10);
-    expect(parsed?.output_tokens).toBe(4);
-    expect(parsed?.total_tokens).toBe(14);
+    expect(parsed?.["source"]).toBe("observed");
+    expect(parsed?.["input_tokens"]).toBe(10);
+    expect(parsed?.["output_tokens"]).toBe(4);
+    expect(parsed?.["total_tokens"]).toBe(14);
   });
 
-  test('observed may carry only partial counts (no forced completeness)', () => {
+  test("observed may carry only partial counts (no forced completeness)", () => {
     const parsed = UsageObservationV1Schema?.parse({
-      source: 'observed',
+      source: "observed",
       input_tokens: 7,
     });
-    expect(parsed?.input_tokens).toBe(7);
-    expect(parsed?.output_tokens).toBeUndefined();
-    expect(parsed?.total_tokens).toBeUndefined();
+    expect(parsed?.["input_tokens"]).toBe(7);
+    expect(parsed?.["output_tokens"]).toBeUndefined();
+    expect(parsed?.["total_tokens"]).toBeUndefined();
   });
 
-  test('optional attribution fields round-trip', () => {
+  test("optional attribution fields round-trip", () => {
     const parsed = UsageObservationV1Schema?.parse({
-      source: 'estimated',
+      source: "estimated",
       input_tokens: 10,
       output_tokens: 5,
       total_tokens: 15,
       cache_read_tokens: 3,
       cache_write_tokens: 2,
       cost: 0.0042,
-      currency: 'USD',
-      pricing_revision: '2026-09-01',
-      upstream_request_id: 'chatcmpl-abc',
+      currency: "USD",
+      pricing_revision: "2026-09-01",
+      upstream_request_id: "chatcmpl-abc",
     });
-    expect(parsed?.cache_read_tokens).toBe(3);
-    expect(parsed?.cache_write_tokens).toBe(2);
-    expect(parsed?.cost).toBe(0.0042);
-    expect(parsed?.currency).toBe('USD');
-    expect(parsed?.pricing_revision).toBe('2026-09-01');
-    expect(parsed?.upstream_request_id).toBe('chatcmpl-abc');
+    expect(parsed?.["cache_read_tokens"]).toBe(3);
+    expect(parsed?.["cache_write_tokens"]).toBe(2);
+    expect(parsed?.["cost"]).toBe(0.0042);
+    expect(parsed?.["currency"]).toBe("USD");
+    expect(parsed?.["pricing_revision"]).toBe("2026-09-01");
+    expect(parsed?.["upstream_request_id"]).toBe("chatcmpl-abc");
   });
 
   test("'unknown' parses bare — no counts required", () => {
-    const parsed = UsageObservationV1Schema?.parse({ source: 'unknown' });
-    expect(parsed?.source).toBe('unknown');
+    const parsed = UsageObservationV1Schema?.parse({ source: "unknown" });
+    expect(parsed?.["source"]).toBe("unknown");
   });
 
   test("'unknown' rejects invented counts (schema-enforced)", () => {
     for (const field of [
-      'input_tokens',
-      'output_tokens',
-      'total_tokens',
-      'cache_read_tokens',
-      'cache_write_tokens',
-      'cost',
+      "input_tokens",
+      "output_tokens",
+      "total_tokens",
+      "cache_read_tokens",
+      "cache_write_tokens",
+      "cost",
     ]) {
-      expect(() =>
-        UsageObservationV1Schema?.parse({ source: 'unknown', [field]: 5 }),
-      ).toThrow();
+      expect(() => UsageObservationV1Schema?.parse({ source: "unknown", [field]: 5 })).toThrow();
     }
   });
 
   test("'unknown' rejects cost attribution fields (currency, pricing_revision)", () => {
-    for (const field of ['currency', 'pricing_revision'] as const) {
+    for (const field of ["currency", "pricing_revision"] as const) {
       expect(() =>
-        UsageObservationV1Schema?.parse({ source: 'unknown', [field]: 'USD' }),
+        UsageObservationV1Schema?.parse({ source: "unknown", [field]: "USD" }),
       ).toThrow();
     }
   });
 
   test("'unknown' may still carry upstream_request_id (identity, not a count)", () => {
     const parsed = UsageObservationV1Schema?.parse({
-      source: 'unknown',
-      upstream_request_id: 'chatcmpl-xyz',
+      source: "unknown",
+      upstream_request_id: "chatcmpl-xyz",
     });
-    expect(parsed?.upstream_request_id).toBe('chatcmpl-xyz');
+    expect(parsed?.["upstream_request_id"]).toBe("chatcmpl-xyz");
   });
 
-  test('rejects a bad source', () => {
-    expect(() =>
-      UsageObservationV1Schema?.parse({ source: 'measured' }),
-    ).toThrow();
+  test("rejects a bad source", () => {
+    expect(() => UsageObservationV1Schema?.parse({ source: "measured" })).toThrow();
   });
 
-  test('rejects negative counts', () => {
+  test("rejects negative counts", () => {
     expect(() =>
-      UsageObservationV1Schema?.parse({ source: 'observed', input_tokens: -1 }),
+      UsageObservationV1Schema?.parse({ source: "observed", input_tokens: -1 }),
     ).toThrow();
   });
 });
 
-describe('UsageRecordV2Schema', () => {
-  test('is exported', () => {
+describe("UsageRecordV2Schema", () => {
+  test("is exported", () => {
     expect(UsageRecordV2Schema).toBeDefined();
   });
 
-  test('round-trips observation + request/attempt identity', () => {
+  test("round-trips observation + request/attempt identity", () => {
     const record = {
       v: 2,
-      ts: '2026-09-23T12:00:00.000Z',
-      provider: 'openai',
-      model: 'gpt-4o-mini',
-      kind: 'chat',
+      ts: "2026-09-23T12:00:00.000Z",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      kind: "chat",
       latency_ms: 321,
       observation: {
-        source: 'observed',
+        source: "observed",
         input_tokens: 11,
         output_tokens: 7,
         total_tokens: 18,
       },
-      request_id: 'req_1',
-      attempt_id: 'attempt_2',
-      route: 'private-first',
-      user: 'alice',
+      request_id: "req_1",
+      attempt_id: "attempt_2",
+      route: "private-first",
+      user: "alice",
     };
     const parsed = UsageRecordV2Schema?.parse(record) as
       | { observation?: { input_tokens?: number }; attempt_id?: string }
       | undefined;
     expect(parsed).toBeDefined();
     expect(parsed?.observation?.input_tokens).toBe(11);
-    expect(parsed?.attempt_id).toBe('attempt_2');
+    expect(parsed?.attempt_id).toBe("attempt_2");
   });
 
-  test('carries an unknown-source observation with no counts', () => {
+  test("carries an unknown-source observation with no counts", () => {
     const parsed = UsageRecordV2Schema?.parse({
       v: 2,
-      ts: '2026-09-23T12:00:00.000Z',
-      provider: 'self-hosted',
-      model: 'llama3',
-      kind: 'chat',
+      ts: "2026-09-23T12:00:00.000Z",
+      provider: "self-hosted",
+      model: "llama3",
+      kind: "chat",
       latency_ms: 50,
-      observation: { source: 'unknown' },
+      observation: { source: "unknown" },
     });
     expect(parsed).toBeDefined();
   });
 });
 
-describe('projectUsageRecordV2ToV1', () => {
+describe("projectUsageRecordV2ToV1", () => {
   const base = {
     v: 2,
-    ts: '2026-09-23T12:00:00.000Z',
-    provider: 'openai',
-    model: 'gpt-4o-mini',
-    kind: 'chat',
+    ts: "2026-09-23T12:00:00.000Z",
+    provider: "openai",
+    model: "gpt-4o-mini",
+    kind: "chat",
     latency_ms: 321,
-    request_id: 'req_1',
-    route: 'r1',
+    request_id: "req_1",
+    route: "r1",
   };
 
-  test('is exported', () => {
+  test("is exported", () => {
     expect(projectUsageRecordV2ToV1).toBeDefined();
   });
 
-  test('fully observed counts project to a V1 record', () => {
+  test("fully observed counts project to a V1 record", () => {
     const v1 = projectUsageRecordV2ToV1?.({
       ...base,
       observation: {
-        source: 'observed',
+        source: "observed",
         input_tokens: 11,
         output_tokens: 7,
         total_tokens: 18,
@@ -270,20 +265,20 @@ describe('projectUsageRecordV2ToV1', () => {
     expect(v1?.prompt_tokens).toBe(11);
     expect(v1?.completion_tokens).toBe(7);
     expect(v1?.total_tokens).toBe(18);
-    expect(v1?.provider).toBe('openai');
+    expect(v1?.provider).toBe("openai");
     expect(v1?.latency_ms).toBe(321);
-    expect(v1?.request_id).toBe('req_1');
-    expect(v1?.route).toBe('r1');
+    expect(v1?.request_id).toBe("req_1");
+    expect(v1?.route).toBe("r1");
     // Projected record must satisfy the untouched V1 schema.
     expect(() => UsageRecordSchema.parse(v1)).not.toThrow();
   });
 
-  test('partial counts → null (never a zero-filled record)', () => {
+  test("partial counts → null (never a zero-filled record)", () => {
     for (const observation of [
-      { source: 'observed', input_tokens: 11, output_tokens: 7 },
-      { source: 'observed', input_tokens: 11, total_tokens: 18 },
-      { source: 'observed', output_tokens: 7, total_tokens: 18 },
-      { source: 'observed' },
+      { source: "observed", input_tokens: 11, output_tokens: 7 },
+      { source: "observed", input_tokens: 11, total_tokens: 18 },
+      { source: "observed", output_tokens: 7, total_tokens: 18 },
+      { source: "observed" },
     ]) {
       expect(projectUsageRecordV2ToV1?.({ ...base, observation })).toBeNull();
     }
@@ -293,7 +288,7 @@ describe('projectUsageRecordV2ToV1', () => {
     expect(
       projectUsageRecordV2ToV1?.({
         ...base,
-        observation: { source: 'unknown' },
+        observation: { source: "unknown" },
       }),
     ).toBeNull();
   });
@@ -303,7 +298,7 @@ describe('projectUsageRecordV2ToV1', () => {
       projectUsageRecordV2ToV1?.({
         ...base,
         observation: {
-          source: 'estimated',
+          source: "estimated",
           input_tokens: 11,
           output_tokens: 7,
           total_tokens: 18,
@@ -312,65 +307,65 @@ describe('projectUsageRecordV2ToV1', () => {
     ).toBeNull();
   });
 
-  test('USD cost maps to estimated_cost_usd; other currencies do not', () => {
+  test("USD cost maps to estimated_cost_usd; other currencies do not", () => {
     const usd = projectUsageRecordV2ToV1?.({
       ...base,
       observation: {
-        source: 'observed',
+        source: "observed",
         input_tokens: 1,
         output_tokens: 1,
         total_tokens: 2,
         cost: 0.01,
-        currency: 'USD',
+        currency: "USD",
       },
     });
     expect(usd?.estimated_cost_usd).toBe(0.01);
     const eur = projectUsageRecordV2ToV1?.({
       ...base,
       observation: {
-        source: 'observed',
+        source: "observed",
         input_tokens: 1,
         output_tokens: 1,
         total_tokens: 2,
         cost: 0.01,
-        currency: 'EUR',
+        currency: "EUR",
       },
     });
     expect(eur?.estimated_cost_usd).toBeUndefined();
   });
 });
 
-describe('projectUsageRecordV2ToV1 — embedding kind', () => {
+describe("projectUsageRecordV2ToV1 — embedding kind", () => {
   const emb = {
     v: 2,
-    ts: '2026-09-23T12:00:00.000Z',
-    provider: 'openai',
-    model: 'text-embedding-3-small',
-    kind: 'embedding',
+    ts: "2026-09-23T12:00:00.000Z",
+    provider: "openai",
+    model: "text-embedding-3-small",
+    kind: "embedding",
     latency_ms: 42,
   };
 
-  test('observed input_tokens projects with completion_tokens as a structural 0', () => {
+  test("observed input_tokens projects with completion_tokens as a structural 0", () => {
     const v1 = projectUsageRecordV2ToV1?.({
       ...emb,
       observation: {
-        source: 'observed',
+        source: "observed",
         input_tokens: 5,
         total_tokens: 5,
       },
     });
     expect(v1).not.toBeNull();
-    expect(v1?.kind).toBe('embedding');
+    expect(v1?.kind).toBe("embedding");
     expect(v1?.prompt_tokens).toBe(5);
     expect(v1?.completion_tokens).toBe(0);
     expect(v1?.total_tokens).toBe(5);
     expect(() => UsageRecordSchema.parse(v1)).not.toThrow();
   });
 
-  test('embedding observed without total_tokens still projects — total falls back to input', () => {
+  test("embedding observed without total_tokens still projects — total falls back to input", () => {
     const v1 = projectUsageRecordV2ToV1?.({
       ...emb,
-      observation: { source: 'observed', input_tokens: 5 },
+      observation: { source: "observed", input_tokens: 5 },
     });
     expect(v1).not.toBeNull();
     expect(v1?.prompt_tokens).toBe(5);
@@ -378,40 +373,40 @@ describe('projectUsageRecordV2ToV1 — embedding kind', () => {
     expect(v1?.total_tokens).toBe(5);
   });
 
-  test('embedding without observed input_tokens → null', () => {
+  test("embedding without observed input_tokens → null", () => {
     expect(
       projectUsageRecordV2ToV1?.({
         ...emb,
-        observation: { source: 'observed', total_tokens: 5 },
+        observation: { source: "observed", total_tokens: 5 },
       }),
     ).toBeNull();
   });
 
-  test('embedding estimated or unknown observation → null', () => {
+  test("embedding estimated or unknown observation → null", () => {
     expect(
       projectUsageRecordV2ToV1?.({
         ...emb,
-        observation: { source: 'estimated', input_tokens: 5, total_tokens: 5 },
+        observation: { source: "estimated", input_tokens: 5, total_tokens: 5 },
       }),
     ).toBeNull();
     expect(
       projectUsageRecordV2ToV1?.({
         ...emb,
-        observation: { source: 'unknown' },
+        observation: { source: "unknown" },
       }),
     ).toBeNull();
   });
 
-  test('chat missing output_tokens still returns null', () => {
+  test("chat missing output_tokens still returns null", () => {
     expect(
       projectUsageRecordV2ToV1?.({
         v: 2,
-        ts: '2026-09-23T12:00:00.000Z',
-        provider: 'openai',
-        model: 'gpt-4o-mini',
-        kind: 'chat',
+        ts: "2026-09-23T12:00:00.000Z",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        kind: "chat",
         latency_ms: 10,
-        observation: { source: 'observed', input_tokens: 5, total_tokens: 5 },
+        observation: { source: "observed", input_tokens: 5, total_tokens: 5 },
       }),
     ).toBeNull();
   });

@@ -75,8 +75,9 @@ after a maintainer approves it with two-factor authentication on npmjs.com.
 ### One-time setup (before the first tag push)
 
 - Create the `npm-release` environment with a required reviewer, deployment
-  tags limited to `exec-primitives-v*`, and admin bypass off. A workflow that
-  names a missing environment creates it without protection rules.
+  tags limited to the release tag patterns (`exec-primitives-v*`,
+  `contracts-v*`, `mcp-shared-v*`, `mcp-v*`), and admin bypass off. A workflow
+  that names a missing environment creates it without protection rules.
 - Add a tag ruleset targeting `exec-primitives-v*` with Restrict creations,
   Restrict updates and Restrict deletions, and the release maintainer (or the
   Repository admin role) on its bypass list, so only they can create release

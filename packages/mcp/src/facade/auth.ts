@@ -26,21 +26,30 @@ export interface BearerAuth {
   fetch: FetchFn;
 }
 
-function cloneHeadersWithAuth(
-  headers: RequestInit['headers'] | undefined,
-  token: string,
-): Headers {
-  const merged = new Headers();
+/** Normalize any of the three `HeadersInit` shapes (Headers instance,
+ *  array of pairs, plain object) into a flat list of `[key, value]`
+ *  pairs, dropping any pair with an undefined member. */
+function headerEntries(headers: RequestInit["headers"] | undefined): [string, string][] {
   if (headers instanceof Headers) {
-    headers.forEach((value, key) => merged.set(key, value));
-  } else if (Array.isArray(headers)) {
-    for (const [key, value] of headers) merged.set(key, value);
-  } else if (headers && typeof headers === 'object') {
-    for (const [key, value] of Object.entries(headers as Record<string, string>)) {
-      merged.set(key, value);
-    }
+    return [...headers.entries()];
   }
-  merged.set('Authorization', `Bearer ${token}`);
+  if (Array.isArray(headers)) {
+    const pairs: [string, string][] = [];
+    for (const [key, value] of headers) {
+      if (key !== undefined && value !== undefined) pairs.push([key, value]);
+    }
+    return pairs;
+  }
+  if (headers && typeof headers === "object") {
+    return Object.entries(headers as Record<string, string>);
+  }
+  return [];
+}
+
+function cloneHeadersWithAuth(headers: RequestInit["headers"] | undefined, token: string): Headers {
+  const merged = new Headers();
+  for (const [key, value] of headerEntries(headers)) merged.set(key, value);
+  merged.set("Authorization", `Bearer ${token}`);
   return merged;
 }
 

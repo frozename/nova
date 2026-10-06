@@ -1,11 +1,12 @@
+import type { PricingCatalog } from "@novaproto/contracts";
+
 import {
   estimateCostUsd,
   loadPricing,
-  readUsage,
   type LoadPricingResult,
+  readUsage,
   type UsageReadOptions,
-} from '@nova/mcp-shared';
-import type { PricingCatalog } from '@nova/contracts';
+} from "@novaproto/mcp-shared";
 
 /**
  * Pure aggregator for the usage JSONL corpus. Given a time window,
@@ -20,7 +21,7 @@ import type { PricingCatalog } from '@nova/contracts';
  * aggregation never blocks on a missing rate table.
  *
  * Separated from the MCP tool registration so callers outside
- * `@nova/mcp` (CLI + Electron + a future cost-guardian agent) can
+ * `@novaproto/mcp` (CLI + Electron + a future cost-guardian agent) can
  * invoke the same aggregation without booting a server.
  */
 
@@ -102,11 +103,114 @@ function emptyAcc(): Accumulator {
 }
 
 function num(v: unknown): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
 function str(v: unknown): string {
-  return typeof v === 'string' ? v : '';
+  return typeof v === "string" ? v : "";
+}
+
+/** Fold one record's tallies into the keyed accumulator map, creating
+ *  the bucket on first sight. `priced` is the per-record dollar
+ *  estimate (or `undefined` when pricing was unavailable). */
+function accumulate(
+  map: Map<string, Accumulator>,
+  key: string,
+  prompt: number,
+  completion: number,
+  total: number,
+  latency: number,
+  priced: number | undefined,
+): void {
+  const acc = map.get(key) ?? emptyAcc();
+  acc.count++;
+  acc.prompt += prompt;
+  acc.completion += completion;
+  acc.total += total;
+  acc.latencySum += latency;
+  if (priced !== undefined) {
+    acc.costSum = (acc.costSum ?? 0) + priced;
+  } else {
+    acc.recordsMissingPricing++;
+  }
+  map.set(key, acc);
+}
+
+/** Group ordering: cost descending when any group has cost, falling
+ *  back to total tokens (groups without cost sort as -1). */
+function compareGroups(a: CostGroup, b: CostGroup): number {
+  const ac = a.estimatedCostUsd ?? -1;
+  const bc = b.estimatedCostUsd ?? -1;
+  if (ac !== bc) return bc - ac;
+  return b.totalTokens - a.totalTokens;
+}
+
+/** Resolve which pricing catalog to bill against, plus the load
+ *  result (file counts) when disk was touched. Injected catalog and
+ *  `pricingDir: null` both skip disk entirely. */
+function resolveCatalog(opts: CostSnapshotOptions): {
+  catalog: PricingCatalog;
+  pricingLoad: LoadPricingResult;
+} {
+  const empty: LoadPricingResult = { catalog: new Map(), filesLoaded: [], malformedFiles: [] };
+  if (opts.pricing) {
+    return { catalog: opts.pricing, pricingLoad: empty };
+  }
+  if (opts.pricingDir === null) {
+    return { catalog: new Map(), pricingLoad: empty };
+  }
+  const pricingLoad = loadPricing(opts.pricingDir !== undefined ? { dir: opts.pricingDir } : {});
+  return { catalog: pricingLoad.catalog, pricingLoad };
+}
+
+interface Tallies {
+  byProvider: Map<string, Accumulator>;
+  byModel: Map<string, Accumulator>;
+  totalRequests: number;
+  totalTokens: number;
+  totalCost: number | null;
+  totalMissingPricing: number;
+}
+
+/** Fold every usage record into per-provider / per-model accumulators
+ *  plus running grand totals. Records missing provider or model are
+ *  skipped; `kind` is normalized to the billing enum. */
+function tallyRecords(records: Record<string, unknown>[], catalog: PricingCatalog): Tallies {
+  const t: Tallies = {
+    byProvider: new Map(),
+    byModel: new Map(),
+    totalRequests: 0,
+    totalTokens: 0,
+    totalCost: null,
+    totalMissingPricing: 0,
+  };
+  for (const r of records) {
+    const provider = str(r["provider"]);
+    const model = str(r["model"]);
+    if (!provider || !model) continue;
+    const prompt = num(r["prompt_tokens"]);
+    const completion = num(r["completion_tokens"]);
+    const total = num(r["total_tokens"]);
+    const latency = num(r["latency_ms"]);
+    const kind: "chat" | "embedding" | "responses" =
+      r["kind"] === "embedding" || r["kind"] === "responses" ? r["kind"] : "chat";
+
+    const priced = estimateCostUsd(
+      { provider, model, kind, prompt_tokens: prompt, completion_tokens: completion },
+      catalog,
+    );
+    if (priced === undefined) t.totalMissingPricing++;
+
+    accumulate(t.byProvider, provider, prompt, completion, total, latency, priced);
+    accumulate(t.byModel, `${provider}/${model}`, prompt, completion, total, latency, priced);
+
+    t.totalRequests++;
+    t.totalTokens += total;
+    if (priced !== undefined) {
+      t.totalCost = (t.totalCost ?? 0) + priced;
+    }
+  }
+  return t;
 }
 
 function toGroup(key: string, acc: Accumulator): CostGroup {
@@ -137,120 +241,31 @@ export function computeCostSnapshot(opts: CostSnapshotOptions = {}): CostSnapsho
   if (opts.dir !== undefined) readOpts.dir = opts.dir;
   const read = readUsage(readOpts);
 
-  let catalog: PricingCatalog;
-  let pricingLoad: LoadPricingResult = {
-    catalog: new Map(),
-    filesLoaded: [],
-    malformedFiles: [],
-  };
-  if (opts.pricing) {
-    catalog = opts.pricing;
-  } else if (opts.pricingDir === null) {
-    catalog = new Map();
-  } else {
-    pricingLoad = loadPricing(
-      opts.pricingDir !== undefined ? { dir: opts.pricingDir } : {},
-    );
-    catalog = pricingLoad.catalog;
-  }
+  const { catalog, pricingLoad } = resolveCatalog(opts);
+  const t = tallyRecords(read.records, catalog);
 
-  const byProvider = new Map<string, Accumulator>();
-  const byModel = new Map<string, Accumulator>();
-  let totalRequests = 0;
-  let totalTokens = 0;
-  let totalCost: number | null = null;
-  let totalMissingPricing = 0;
-
-  for (const r of read.records) {
-    const provider = str(r.provider);
-    const model = str(r.model);
-    if (!provider || !model) continue;
-    const prompt = num(r.prompt_tokens);
-    const completion = num(r.completion_tokens);
-    const total = num(r.total_tokens);
-    const latency = num(r.latency_ms);
-    const kind = (r.kind as 'chat' | 'embedding' | 'responses') ?? 'chat';
-
-    const priced = estimateCostUsd(
-      {
-        provider,
-        model,
-        kind,
-        prompt_tokens: prompt,
-        completion_tokens: completion,
-      },
-      catalog,
-    );
-    const missing = priced === undefined;
-    if (missing) totalMissingPricing++;
-
-    const pAcc = byProvider.get(provider) ?? emptyAcc();
-    pAcc.count++;
-    pAcc.prompt += prompt;
-    pAcc.completion += completion;
-    pAcc.total += total;
-    pAcc.latencySum += latency;
-    if (priced !== undefined) {
-      pAcc.costSum = (pAcc.costSum ?? 0) + priced;
-    } else {
-      pAcc.recordsMissingPricing++;
-    }
-    byProvider.set(provider, pAcc);
-
-    const modelKey = `${provider}/${model}`;
-    const mAcc = byModel.get(modelKey) ?? emptyAcc();
-    mAcc.count++;
-    mAcc.prompt += prompt;
-    mAcc.completion += completion;
-    mAcc.total += total;
-    mAcc.latencySum += latency;
-    if (priced !== undefined) {
-      mAcc.costSum = (mAcc.costSum ?? 0) + priced;
-    } else {
-      mAcc.recordsMissingPricing++;
-    }
-    byModel.set(modelKey, mAcc);
-
-    totalRequests++;
-    totalTokens += total;
-    if (priced !== undefined) {
-      totalCost = (totalCost ?? 0) + priced;
-    }
-  }
-
-  const providerGroups = Array.from(byProvider.entries())
+  const providerGroups = Array.from(t.byProvider.entries())
     .map(([k, a]) => toGroup(k, a))
-    // Sort by cost if we have any, else by totalTokens.
-    .sort((a, b) => {
-      const ac = a.estimatedCostUsd ?? -1;
-      const bc = b.estimatedCostUsd ?? -1;
-      if (ac !== bc) return bc - ac;
-      return b.totalTokens - a.totalTokens;
-    });
-  const modelGroups = Array.from(byModel.entries())
+    .sort(compareGroups);
+  const modelGroups = Array.from(t.byModel.entries())
     .map(([k, a]) => toGroup(k, a))
-    .sort((a, b) => {
-      const ac = a.estimatedCostUsd ?? -1;
-      const bc = b.estimatedCostUsd ?? -1;
-      if (ac !== bc) return bc - ac;
-      return b.totalTokens - a.totalTokens;
-    });
+    .sort(compareGroups);
 
   const snapshot: CostSnapshot = {
     windowSince: new Date(sinceMs).toISOString(),
     windowUntil: new Date(untilMs).toISOString(),
     filesScanned: read.filesScanned.length,
     malformedLines: read.malformedLines,
-    totalRequests,
-    totalTokens,
-    recordsMissingPricing: totalMissingPricing,
+    totalRequests: t.totalRequests,
+    totalTokens: t.totalTokens,
+    recordsMissingPricing: t.totalMissingPricing,
     pricingFilesLoaded: pricingLoad.filesLoaded.length,
     pricingFilesMalformed: pricingLoad.malformedFiles.length,
     byProvider: providerGroups,
     byModel: modelGroups,
   };
-  if (totalCost !== null) {
-    snapshot.totalEstimatedCostUsd = totalCost;
+  if (t.totalCost !== null) {
+    snapshot.totalEstimatedCostUsd = t.totalCost;
   }
   return snapshot;
 }

@@ -1,11 +1,11 @@
 import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
-const LOG_PATH = process.env.FAKE_ACP_LOG;
-const ECHO_ENV = process.env.FAKE_ACP_ECHO_ENV === "1";
-const REQUIRE_AUTH = process.env.FAKE_ACP_REQUIRE_AUTH === "1";
-const ASK_PERMISSION = process.env.FAKE_ACP_ASK_PERMISSION === "1";
-const DELAY_MS = Number(process.env.FAKE_ACP_DELAY_MS ?? "0") || 0;
+const LOG_PATH = process.env["FAKE_ACP_LOG"];
+const ECHO_ENV = process.env["FAKE_ACP_ECHO_ENV"] === "1";
+const REQUIRE_AUTH = process.env["FAKE_ACP_REQUIRE_AUTH"] === "1";
+const ASK_PERMISSION = process.env["FAKE_ACP_ASK_PERMISSION"] === "1";
+const DELAY_MS = Number(process.env["FAKE_ACP_DELAY_MS"] ?? "0") || 0;
 
 let authenticated = false;
 let nextServerRequestId = 900;
@@ -14,6 +14,7 @@ const pendingServerRequests = new Map<number, () => void>();
 function log(line: string): void {
   if (!LOG_PATH) return;
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- The test harness supplies this wire log path inside its isolated temporary directory.
     appendFileSync(LOG_PATH, `${line}\n`);
   } catch {
     // best-effort wire log

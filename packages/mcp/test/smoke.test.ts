@@ -1,170 +1,174 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { stringify as stringifyYaml } from 'yaml';
-import { buildNovaMcpServer } from '../src/server.js';
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import { stringify as stringifyYaml } from "yaml";
+
+import { buildNovaMcpServer } from "../src/server.js";
 
 /**
- * Smoke test for @nova/mcp. Boots the facade over the SDK's
+ * Smoke test for @novaproto/mcp. Boots the facade over the SDK's
  * InMemoryTransport, exercises `ops.overview` against a tempdir-scoped
  * trio of YAMLs, and verifies `ops.healthcheck` fails soft when a
  * gateway endpoint is unreachable.
  */
 
-let runtimeDir = '';
-let auditDir = '';
-let kubePath = '';
-let siriusPath = '';
-let embPath = '';
+let runtimeDir = "";
+let auditDir = "";
+let kubePath = "";
+let siriusPath = "";
+let embPath = "";
 const originalEnv = { ...process.env };
 
 beforeEach(() => {
-  runtimeDir = mkdtempSync(join(tmpdir(), 'nova-mcp-runtime-'));
-  auditDir = mkdtempSync(join(tmpdir(), 'nova-mcp-audit-'));
-  kubePath = join(runtimeDir, 'config');
-  siriusPath = join(runtimeDir, 'sirius-providers.yaml');
-  embPath = join(runtimeDir, 'embersynth.yaml');
+  runtimeDir = mkdtempSync(join(tmpdir(), "nova-mcp-runtime-"));
+  auditDir = mkdtempSync(join(tmpdir(), "nova-mcp-audit-"));
+  kubePath = join(runtimeDir, "config");
+  siriusPath = join(runtimeDir, "sirius-providers.yaml");
+  embPath = join(runtimeDir, "embersynth.yaml");
 
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test fixture path under the mkdtempSync tempdir; writing canned YAML
   writeFileSync(
     kubePath,
     stringifyYaml({
-      apiVersion: 'llamactl/v1',
-      kind: 'Config',
-      currentContext: 'default',
-      contexts: [{ name: 'default', cluster: 'home', user: 'me', defaultNode: 'local' }],
+      apiVersion: "llamactl/v1",
+      kind: "Config",
+      currentContext: "default",
+      contexts: [{ name: "default", cluster: "home", user: "me", defaultNode: "local" }],
       clusters: [
         {
-          name: 'home',
+          name: "home",
           nodes: [
-            { name: 'local', endpoint: 'inproc://local' },
+            { name: "local", endpoint: "inproc://local" },
             {
-              name: 'sirius-primary',
-              endpoint: '',
-              kind: 'gateway',
-              cloud: { provider: 'sirius', baseUrl: 'http://127.0.0.1:1/v1' },
+              name: "sirius-primary",
+              endpoint: "",
+              kind: "gateway",
+              cloud: { provider: "sirius", baseUrl: "http://127.0.0.1:1/v1" },
             },
           ],
         },
       ],
-      users: [{ name: 'me', token: 'local' }],
+      users: [{ name: "me", token: "local" }],
     }),
   );
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test fixture path under the mkdtempSync tempdir; writing canned YAML
   writeFileSync(
     siriusPath,
     stringifyYaml({
-      providers: [
-        { name: 'openai', kind: 'openai', baseUrl: 'http://127.0.0.1:1/v1' },
-      ],
+      providers: [{ name: "openai", kind: "openai", baseUrl: "http://127.0.0.1:1/v1" }],
     }),
   );
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test fixture path under the mkdtempSync tempdir; writing canned YAML
   writeFileSync(
     embPath,
     stringifyYaml({
-      profiles: [{ id: 'auto', label: 'Automatic' }],
-      syntheticModels: { 'fusion-auto': 'auto' },
+      profiles: [{ id: "auto", label: "Automatic" }],
+      syntheticModels: { "fusion-auto": "auto" },
     }),
   );
 
-  for (const k of Object.keys(process.env)) delete process.env[k];
+  for (const k of Object.keys(process.env)) Reflect.deleteProperty(process.env, k);
   Object.assign(process.env, originalEnv, {
     DEV_STORAGE: runtimeDir,
     LLAMACTL_MCP_AUDIT_DIR: auditDir,
   });
 });
 afterEach(() => {
-  for (const k of Object.keys(process.env)) delete process.env[k];
+  for (const k of Object.keys(process.env)) Reflect.deleteProperty(process.env, k);
   Object.assign(process.env, originalEnv);
   rmSync(runtimeDir, { recursive: true, force: true });
   rmSync(auditDir, { recursive: true, force: true });
 });
 
-async function connected() {
+async function connected(): Promise<Client> {
   const server = buildNovaMcpServer();
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
-  const client = new Client({ name: 'test-client', version: '0.0.0' });
+  const client = new Client({ name: "test-client", version: "0.0.0" });
   await client.connect(clientTransport);
   return client;
 }
 
 function textOf(result: unknown): string {
-  const content = (result as { content?: Array<{ type: string; text: string }> }).content ?? [];
-  return content[0]?.text ?? '';
+  const content = (result as { content?: { type: string; text: string }[] }).content ?? [];
+  return content[0]?.text ?? "";
 }
 
-function auditLines(): Array<Record<string, unknown>> {
+function auditLines(): Record<string, unknown>[] {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test-owned tempdir from mkdtempSync in beforeEach; read-only existence probe
   if (!existsSync(auditDir)) return [];
-  const files = readdirSync(auditDir).filter((f) => f.startsWith('nova-'));
-  const out: Array<Record<string, unknown>> = [];
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- same test-owned tempdir; read-only directory listing
+  const files = readdirSync(auditDir).filter((f) => f.startsWith("nova-"));
+  const out: Record<string, unknown>[] = [];
   for (const f of files) {
-    const body = readFileSync(join(auditDir, f), 'utf8');
-    for (const line of body.trim().split('\n')) if (line) out.push(JSON.parse(line));
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- audit file under the test-owned tempdir; read-only load
+    const body = readFileSync(join(auditDir, f), "utf8");
+    for (const line of body.trim().split("\n")) {
+      if (line) out.push(JSON.parse(line) as Record<string, unknown>);
+    }
   }
   return out;
 }
 
-describe('@nova/mcp facade', () => {
-  test('listTools advertises the ops + operator.plan tools', async () => {
+describe("@novaproto/mcp facade", () => {
+  test("listTools advertises the ops + operator.plan tools", async () => {
     const client = await connected();
     const list = await client.listTools();
     const names = list.tools.map((t) => t.name).sort();
     expect(names).toEqual([
-      'nova.operator.plan',
-      'nova.ops.cost.snapshot',
-      'nova.ops.healthcheck',
-      'nova.ops.overview',
+      "nova.operator.plan",
+      "nova.ops.cost.snapshot",
+      "nova.ops.healthcheck",
+      "nova.ops.overview",
     ]);
   });
 
-  test('nova.ops.overview unifies kubeconfig + sirius + embersynth', async () => {
+  test("nova.ops.overview unifies kubeconfig + sirius + embersynth", async () => {
     const client = await connected();
     const result = await client.callTool({
-      name: 'nova.ops.overview',
+      name: "nova.ops.overview",
       arguments: {},
     });
     const parsed = JSON.parse(textOf(result)) as {
       context: string | null;
       cluster: string | null;
-      agents: Array<{ name: string }>;
-      gateways: Array<{ name: string; provider: string | null }>;
-      siriusProviders: Array<{ name: string; kind: string }>;
-      embersynthProfiles: Array<{ id: string }>;
+      agents: { name: string }[];
+      gateways: { name: string; provider: string | null }[];
+      siriusProviders: { name: string; kind: string }[];
+      embersynthProfiles: { id: string }[];
       syntheticModels: Record<string, string>;
     };
-    expect(parsed.context).toBe('default');
-    expect(parsed.cluster).toBe('home');
-    expect(parsed.agents.map((a) => a.name)).toEqual(['local']);
-    expect(parsed.gateways.map((g) => g.name)).toEqual(['sirius-primary']);
-    expect(parsed.siriusProviders.map((p) => p.name)).toEqual(['openai']);
-    expect(parsed.embersynthProfiles.map((p) => p.id)).toEqual(['auto']);
-    expect(parsed.syntheticModels['fusion-auto']).toBe('auto');
+    expect(parsed.context).toBe("default");
+    expect(parsed.cluster).toBe("home");
+    expect(parsed.agents.map((a) => a.name)).toEqual(["local"]);
+    expect(parsed.gateways.map((g) => g.name)).toEqual(["sirius-primary"]);
+    expect(parsed.siriusProviders.map((p) => p.name)).toEqual(["openai"]);
+    expect(parsed.embersynthProfiles.map((p) => p.id)).toEqual(["auto"]);
+    expect(parsed.syntheticModels["fusion-auto"]).toBe("auto");
 
     const audits = auditLines();
     expect(audits).toHaveLength(1);
-    expect(audits[0]!.tool).toBe('nova.ops.overview');
+    expect(audits[0]!["tool"]).toBe("nova.ops.overview");
   });
 
-  test('nova.ops.overview surfaces empty sections when files are absent', async () => {
+  test("nova.ops.overview surfaces empty sections when files are absent", async () => {
     rmSync(kubePath);
     rmSync(siriusPath);
     rmSync(embPath);
     const client = await connected();
     const result = await client.callTool({
-      name: 'nova.ops.overview',
+      name: "nova.ops.overview",
       arguments: {},
     });
     const parsed = JSON.parse(textOf(result)) as {
-      paths: { kubeconfig: string | null; siriusProviders: string | null; embersynthConfig: string | null };
+      paths: {
+        kubeconfig: string | null;
+        siriusProviders: string | null;
+        embersynthConfig: string | null;
+      };
       agents: unknown[];
       gateways: unknown[];
       siriusProviders: unknown[];
@@ -181,24 +185,64 @@ describe('@nova/mcp facade', () => {
     expect(parsed.syntheticModels).toEqual({});
   });
 
-  test('nova.ops.healthcheck fails soft on unreachable endpoints', async () => {
+  test("nova.ops.overview rejects an agent path that escapes the config root", async () => {
+    // The kubeconfigPath input is LLM/agent-controlled. A secret config living
+    // OUTSIDE the config root (DEV_STORAGE = runtimeDir) must not be readable
+    // via a `..` traversal — resolveOperatorPath rejects it and falls back to
+    // the (absent) default, so none of its contents surface.
+    const outsideDir = mkdtempSync(join(tmpdir(), "nova-mcp-secret-"));
+    const secretPath = join(outsideDir, "secret-kubeconfig");
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test-owned tempdir from mkdtempSync; writing the canned "secret" fixture
+    writeFileSync(
+      secretPath,
+      stringifyYaml({
+        currentContext: "EXFILTRATED",
+        contexts: [{ name: "EXFILTRATED", cluster: "leaked" }],
+        clusters: [{ name: "leaked", nodes: [{ name: "stolen-agent", endpoint: "inproc://x" }] }],
+      }),
+    );
+    const traversal = relative(runtimeDir, secretPath);
+    try {
+      const client = await connected();
+      const result = await client.callTool({
+        name: "nova.ops.overview",
+        arguments: { kubeconfigPath: traversal },
+      });
+      const raw = textOf(result);
+      const parsed = JSON.parse(raw) as {
+        paths: { kubeconfig: string | null };
+        context: string | null;
+        agents: { name: string }[];
+      };
+      // The traversal was rejected: it fell back to the default kube path
+      // (runtimeDir/config), which is the legit fixture — never the secret.
+      expect(raw).not.toContain("EXFILTRATED");
+      expect(raw).not.toContain("stolen-agent");
+      expect(parsed.context).not.toBe("EXFILTRATED");
+      expect(parsed.paths.kubeconfig).not.toBe(secretPath);
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  test("nova.ops.healthcheck fails soft on unreachable endpoints", async () => {
     const client = await connected();
     const result = await client.callTool({
-      name: 'nova.ops.healthcheck',
+      name: "nova.ops.healthcheck",
       arguments: { timeoutMs: 500 },
     });
     const parsed = JSON.parse(textOf(result)) as {
-      gateways: Array<{ name: string; ok: boolean; status: number }>;
-      siriusProviders: Array<{ name: string; ok: boolean; status: number }>;
+      gateways: { name: string; ok: boolean; status: number }[];
+      siriusProviders: { name: string; ok: boolean; status: number }[];
     };
     expect(parsed.gateways).toHaveLength(1);
-    expect(parsed.gateways[0]!.name).toBe('sirius-primary');
+    expect(parsed.gateways[0]!.name).toBe("sirius-primary");
     expect(parsed.gateways[0]!.ok).toBe(false);
     expect(parsed.siriusProviders).toHaveLength(1);
     expect(parsed.siriusProviders[0]!.ok).toBe(false);
 
     const audits = auditLines();
     expect(audits).toHaveLength(1);
-    expect(audits[0]!.tool).toBe('nova.ops.healthcheck');
+    expect(audits[0]!["tool"]).toBe("nova.ops.healthcheck");
   });
 });

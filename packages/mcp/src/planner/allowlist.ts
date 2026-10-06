@@ -1,4 +1,4 @@
-import type { PlannerToolDescriptor } from './schema.js';
+import type { PlannerToolDescriptor } from "./schema.js";
 
 /**
  * Operator-configurable allow/deny list for the planner. Config lives
@@ -27,7 +27,7 @@ export interface AllowlistConfig {
 
 function matches(name: string, pattern: string): boolean {
   if (pattern === name) return true;
-  if (pattern.endsWith('*')) {
+  if (pattern.endsWith("*")) {
     const prefix = pattern.slice(0, -1);
     return name.startsWith(prefix);
   }
@@ -50,7 +50,7 @@ export function filterTools(
   for (const tool of tools) {
     if (matchesAny(tool.name, config.deny)) continue;
     if (!matchesAny(tool.name, config.allow)) continue;
-    if (tool.tier === 'mutation-destructive' && !allowDestructive) continue;
+    if (tool.tier === "mutation-destructive" && !allowDestructive) continue;
     out.push(tool);
   }
   return out;
@@ -63,16 +63,7 @@ export function filterTools(
  * (deregister, uninstall, delete) off until the operator opts in.
  */
 export const DEFAULT_ALLOWLIST: AllowlistConfig = {
-  allow: [
-    'llamactl.*',
-    'sirius.*',
-    'embersynth.*',
-    'nova.*',
-  ],
-  deny: [
-    'sirius.providers.deregister',
-    'llamactl.infra.uninstall',
-    'llamactl.workload.delete',
-  ],
+  allow: ["llamactl.*", "sirius.*", "embersynth.*", "nova.*"],
+  deny: ["sirius.providers.deregister", "llamactl.infra.uninstall", "llamactl.workload.delete"],
   allowDestructive: false,
 };

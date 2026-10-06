@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Unified usage record. Every AI call in the llamactl family —
@@ -20,7 +20,7 @@ import { z } from 'zod';
  * retroactively.
  */
 
-export const UsageKindSchema = z.enum(['chat', 'embedding', 'responses']);
+export const UsageKindSchema = z.enum(["chat", "embedding", "responses"]);
 export type UsageKind = z.infer<typeof UsageKindSchema>;
 
 export const UsageRecordSchema = z.object({
@@ -75,11 +75,7 @@ export interface MinimalUsageInput {
  *  - 'unknown': the upstream returned no usage data. Carries no
  *    counts at all; the schema enforces that.
  */
-export const UsageObservationSourceSchema = z.enum([
-  'observed',
-  'estimated',
-  'unknown',
-]);
+export const UsageObservationSourceSchema = z.enum(["observed", "estimated", "unknown"]);
 export type UsageObservationSource = z.infer<typeof UsageObservationSourceSchema>;
 
 const countField = z.number().int().nonnegative().optional();
@@ -116,20 +112,20 @@ export const UsageObservationV1Schema = z
     upstream_request_id: z.string().optional(),
   })
   .check((ctx) => {
-    if (ctx.value.source !== 'unknown') return;
+    if (ctx.value.source !== "unknown") return;
     for (const key of [
-      'input_tokens',
-      'output_tokens',
-      'total_tokens',
-      'cache_read_tokens',
-      'cache_write_tokens',
-      'cost',
-      'currency',
-      'pricing_revision',
+      "input_tokens",
+      "output_tokens",
+      "total_tokens",
+      "cache_read_tokens",
+      "cache_write_tokens",
+      "cost",
+      "currency",
+      "pricing_revision",
     ] as const) {
       if (ctx.value[key] !== undefined) {
         ctx.issues.push({
-          code: 'custom',
+          code: "custom",
           message: `source 'unknown' must not carry ${key}`,
           input: ctx.value,
         });
@@ -179,11 +175,11 @@ export type UsageRecordV2 = z.infer<typeof UsageRecordV2Schema>;
  */
 export function projectUsageRecordV2ToV1(record: UsageRecordV2): UsageRecord | null {
   const o = record.observation;
-  if (o.source !== 'observed' || o.input_tokens === undefined) {
+  if (o.source !== "observed" || o.input_tokens === undefined) {
     return null;
   }
   let completionTokens = 0;
-  if (record.kind !== 'embedding') {
+  if (record.kind !== "embedding") {
     if (o.output_tokens === undefined || o.total_tokens === undefined) {
       return null;
     }
@@ -199,9 +195,7 @@ export function projectUsageRecordV2ToV1(record: UsageRecordV2): UsageRecord | n
     total_tokens: o.total_tokens ?? o.input_tokens,
     latency_ms: record.latency_ms,
     ...(record.request_id !== undefined ? { request_id: record.request_id } : {}),
-    ...(o.cost !== undefined && o.currency === 'USD'
-      ? { estimated_cost_usd: o.cost }
-      : {}),
+    ...(o.cost !== undefined && o.currency === "USD" ? { estimated_cost_usd: o.cost } : {}),
     ...(record.user !== undefined ? { user: record.user } : {}),
     ...(record.route !== undefined ? { route: record.route } : {}),
   };

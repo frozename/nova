@@ -15,7 +15,7 @@ export function cleanupDir(dir: string): void {
 }
 
 export function hostEnv(dir: string, extra: Record<string, string> = {}): Record<string, string> {
-  return { PATH: process.env.PATH ?? "", HOME: dir, ...extra };
+  return { PATH: process.env["PATH"] ?? "", HOME: dir, ...extra };
 }
 
 export function sleep(ms: number): Promise<void> {
@@ -62,6 +62,7 @@ export function groupExists(pgid: number | undefined): boolean {
 }
 
 export function markerAbsent(marker: string): boolean {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Tests construct the marker inside an isolated temporary directory.
   return !existsSync(marker);
 }
 
@@ -74,7 +75,9 @@ export interface WireLine {
 }
 
 export function readWireLog(logPath: string): WireLine[] {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The wire log belongs to the test harness temporary directory.
   if (!existsSync(logPath)) return [];
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The wire log belongs to the test harness temporary directory.
   return readFileSync(logPath, "utf8")
     .split("\n")
     .filter((line) => line.trim().length > 0)

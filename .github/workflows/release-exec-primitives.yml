@@ -35,7 +35,8 @@ name: release-exec-primitives
 #
 # One-time prerequisites, before the first tag push:
 #   - Environment npm-release with a required reviewer, deployment tags limited
-#     to exec-primitives-v*, and admin bypass off. A workflow that names a
+#     to the release tag patterns (exec-primitives-v*, contracts-v*,
+#     mcp-shared-v*, mcp-v*), and admin bypass off. A workflow that names a
 #     missing environment creates it without protection rules.
 #   - A tag ruleset targeting exec-primitives-v* with Restrict creations,
 #     Restrict updates and Restrict deletions, and the release maintainer (or

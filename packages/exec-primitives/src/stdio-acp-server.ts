@@ -32,7 +32,7 @@ export interface StdioAcpHandle {
   stdout: Readable;
   kill: () => void;
   exited: Promise<number | null>;
-  pid?: number;
+  pid?: number | undefined;
   /** Returns up to the last `stderrTailBytes` of child stderr seen so far. */
   getStderrTail: () => string;
   /**

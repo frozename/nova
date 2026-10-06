@@ -110,7 +110,7 @@ class AcpWarmPoolImpl implements AcpWarmPool {
   private readonly maxAgeMs: number;
   private readonly maxEntries: number;
   private readonly maxEntriesPerKey: number;
-  private readonly logger?: ExecLogger;
+  private readonly logger: ExecLogger | undefined;
   private readonly entries = new Map<string, AcpWarmPoolEntry[]>();
   private readonly sweepTimer: ReturnType<typeof setInterval>;
   private closed = false;

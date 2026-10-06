@@ -1,0 +1,599 @@
+name: release
+
+# Stages one of @novaproto/contracts, @novaproto/mcp-shared or @novaproto/mcp
+# on the public npm registry.
+#
+# Trigger: pushing a tag named <package>-v<version>, where <package> is
+# contracts, mcp-shared or mcp (for example contracts-v0.2.0,
+# mcp-shared-v0.2.0 or mcp-v0.2.0). No branch push, other tag pattern or
+# manual dispatch runs this workflow, and one run releases only the package its
+# tag names. Both jobs map the tag to a package with one anchored whole-tag
+# pattern per package and require exactly one match, so an mcp-v* tag can never
+# release mcp-shared or the reverse. The three tag filters below cannot both
+# match one tag either (mcp-v* needs "v" where mcp-shared-v* needs "s").
+#
+# Jobs:
+#   build    contents: read only; no id-token, no secrets, no Actions cache.
+#            Refuses unless the tag names one package and a plain X.Y.Z
+#            version, that package's manifest has the tag's name and version,
+#            no private field and publishConfig exactly {"access":"public"},
+#            and bun.lock records, under workspaces, the package.json version
+#            of that package and of each @novaproto/* dependency it declares
+#            (no other workspace is checked). Then installs with the frozen
+#            lockfile, builds, runs lint with the strict typecheck, runs every
+#            test suite through the check.yml test gate, packs <package>.tgz
+#            with bun pm pack and uploads it as the release-tarball artifact.
+#            bun pm pack rewrites workspace:* dependencies to the version
+#            recorded for them under workspaces in bun.lock, which bun install
+#            does not update when a package.json version changes; npm itself
+#            does not rewrite workspace: specs. The pack step refuses a tarball
+#            that lacks a declared entry point or whose dependencies,
+#            optionalDependencies or peerDependencies hold a workspace:,
+#            catalog:, file:, link:, git, URL, path or tarball-file (.tgz,
+#            .tar, .tar.gz) spec, or an @novaproto/* spec other than the exact
+#            version in that dependency's package.json.
+#   publish  Gated by the npm-release environment. The only job with
+#            id-token: write, because any code running in a job that holds it
+#            can mint a publish-capable npm token; so it checks out and installs
+#            nothing. It downloads the artifact into a directory that must hold
+#            only the tarball and runs npm from a fresh directory holding a copy
+#            of it, so no .npmrc from the artifact becomes npm's project config.
+#            It refuses unless the tarball is a single package/ tree whose
+#            package.json names the tag's package and version with
+#            publishConfig exactly {"access":"public"} and dependency specs
+#            that pass the build job's spec checks (for @novaproto/*, an exact
+#            X.Y.Z), and unless every @novaproto/* dependency
+#            version is already live on https://registry.npmjs.org/ (a staged,
+#            unapproved version is not) and its published dependencies pin
+#            each @novaproto/* package the tarball also pins at the same
+#            version. Then it stages the tarball with `npm stage publish`
+#            (npm >= 11.15.0).
+#
+# Publishing is stage-only npm trusted publishing (OIDC): a staged version goes
+# live only after a maintainer approves it with 2FA on npmjs.com. No npm token
+# is used. npm silently falls back to a configured token when the OIDC exchange
+# fails, so the publish step refuses if NODE_AUTH_TOKEN, NPM_CONFIG_TOKEN or
+# NPM_TOKEN is set; if any npm config layer (environment, project, user or
+# global) carries an auth entry or sets tag, force, provenance, proxy,
+# https-proxy or strict-ssl; or if npm does not publish @novaproto to
+# https://registry.npmjs.org/.
+#
+# One-time prerequisites, before the first tag push:
+#   - Environment npm-release, which the exec-primitives release also uses,
+#     with a required reviewer, deployment tags limited to the release tag
+#     patterns (exec-primitives-v* for that release, plus contracts-v*,
+#     mcp-shared-v* and mcp-v*), and admin bypass off. Dropping a pattern
+#     blocks that package's releases at the environment gate. A workflow that
+#     names a missing environment creates it without protection rules.
+#   - A tag ruleset targeting contracts-v*, mcp-shared-v* and mcp-v* with
+#     Restrict creations, Restrict updates and Restrict deletions, and the
+#     release maintainer (or the Repository admin role) on its bypass list, so
+#     only they can create release tags.
+#   - When this workflow reaches main, extend the npm-release deployment tags
+#     and the tag ruleset with contracts-v*, mcp-shared-v* and mcp-v*, and
+#     update the exec-primitives release docs to match, in the same change.
+#   - All three packages already exist on npm, so none needs a manual first
+#     publish. For EACH of @novaproto/contracts, @novaproto/mcp-shared and
+#     @novaproto/mcp, on npmjs.com, add the trusted publisher: organization or
+#     user frozename, repository nova, workflow filename release.yml,
+#     environment npm-release, stage-only. Fields are case-sensitive and not
+#     validated on save. Then set "Require two-factor authentication and
+#     disallow tokens" on the package.
+#   - Revoke every npm token that can publish under @novaproto, including any
+#     used to publish 0.1.0, and delete any NPM_TOKEN secret (repository or
+#     environment). Never add one: a tag push runs the workflow file at the
+#     tagged commit, and older commits carry a token-based release.yml that a
+#     v* tag runs with the NPM_TOKEN secret. Adding v* to the tag ruleset
+#     above keeps anyone outside its bypass list from pushing such a tag.
+#
+# Release order: contracts, then mcp-shared, then mcp. bun pm pack pins each
+# @novaproto/* dependency to the version recorded for it under workspaces in
+# bun.lock, and the build job refuses unless that equals the version in the
+# dependency's package.json. bun install does not update that entry when a
+# version changes, and regenerating bun.lock would re-resolve every dependency,
+# so a release commit that changes a package.json version sets the same version
+# for that package under workspaces in bun.lock by hand. The publish job refuses
+# to stage a package while a pinned dependency version is not live, so approve a
+# dependency on npmjs.com before pushing its dependent's tag. If the publish job
+# refused for that reason, approve the dependency, then re-run the failed job.
+# The pins are exact, so the publish job also refuses a package whose pinned
+# dependency pins a different version of a package both depend on: mcp released
+# after contracts, while the live mcp-shared still pins the previous contracts.
+# So after releasing a package, re-release every package that depends on it, in
+# order, before releasing anything further downstream: after contracts, release
+# mcp-shared, then mcp. If a dependency's source changed since its last release,
+# bump and release it first: a dependent released without that bump pins the
+# previously published version.
+#
+# Every release: push the tag; approve the npm-release environment only if the
+# run is for the merged release commit and the tag you pushed; then approve the
+# staged version on npmjs.com only if its name and version are the ones the tag
+# names, its file list is the one you expect, and each @novaproto/* dependency
+# version equals the version in packages/<dependency>/package.json at the
+# tagged commit. Reject anything you did not tag.
+#
+# Pre-releases and backports are not supported as-is. npm stage publish
+# refuses a pre-release, or a version below the highest published version that
+# is neither a pre-release nor deprecated, without an explicit --tag. This
+# workflow passes none and the tarball check rejects publishConfig.tag; both
+# jobs also refuse a tag that is not plain X.Y.Z, so a pre-release stops in
+# build, before the npm-release gate, while a backport passes the gate and npm
+# normally refuses it at the stage step (a client-side check; reject it on
+# npmjs.com if it is ever staged). Such a release needs a
+# commit that adds `--tag <dist-tag>` to the `npm stage publish` line below
+# (and, for a pre-release, relaxes the X.Y.Z checks in both jobs, including the
+# one on @novaproto/* dependency specs) before that commit is tagged. The
+# trusted publisher binds only the workflow filename, so this edit keeps it
+# valid.
+
+on:
+  push:
+    tags:
+      - "contracts-v*"
+      - "mcp-shared-v*"
+      - "mcp-v*"
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+          no-cache: true
+
+      - name: Refuse unless the tag names one package and a plain X.Y.Z version
+        id: tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # One anchored whole-tag pattern per package; exactly one must match.
+          # npm stage publish refuses a pre-release without --tag, which this
+          # workflow does not pass; stop here, before the npm-release gate.
+          package=""
+          matches=0
+          for candidate in contracts mcp-shared mcp; do
+            if [[ "$RELEASE_TAG" =~ ^${candidate}-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              package="$candidate"
+              matches=$((matches + 1))
+            fi
+          done
+          if [ "$matches" != 1 ]; then
+            echo "::error::Tag '$RELEASE_TAG' is not <package>-v<major>.<minor>.<patch> for package contracts, mcp-shared or mcp; pre-releases need --tag, which this workflow does not pass."
+            exit 1
+          fi
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_TAG#"$package-v"}" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse unless the tag matches a publishable manifest
+        env:
+          RELEASE_PACKAGE: ${{ steps.tag.outputs.package }}
+          RELEASE_VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          # bun -e exits 0 without output when a script that calls require
+          # throws, so the whole check runs inside try/catch and exits 1.
+          EXPECTED="@novaproto/$RELEASE_PACKAGE@$RELEASE_VERSION" \
+          MANIFEST="packages/$RELEASE_PACKAGE/package.json" \
+            bun -e '
+              try {
+                const fs = require("node:fs");
+                const pkg = JSON.parse(fs.readFileSync(process.env.MANIFEST, "utf8"));
+                const actual = pkg.name + "@" + pkg.version;
+                if (actual !== process.env.EXPECTED) {
+                  console.error("::error::" + process.env.MANIFEST + " is " + actual + "; the tag names " + process.env.EXPECTED + ".");
+                  process.exit(1);
+                }
+                if ("private" in pkg) {
+                  console.error("::error::" + process.env.MANIFEST + " has a private field.");
+                  process.exit(1);
+                }
+                const publishConfig = JSON.stringify(pkg.publishConfig);
+                if (publishConfig !== JSON.stringify({ access: "public" })) {
+                  console.error("::error::" + process.env.MANIFEST + " publishConfig is " + publishConfig + "; only {\"access\":\"public\"} is allowed.");
+                  process.exit(1);
+                }
+                // bun pm pack writes each workspace:* dependency as the version
+                // bun.lock records under workspaces, which bun install does not
+                // update when a package.json version changes. Only this package
+                // and its @novaproto/* dependencies reach its tarball, so only
+                // their entries are checked, so the release of another package
+                // cannot block this one.
+                const lock = require(require("node:path").resolve("bun.lock"));
+                const lockDirs = new Map();
+                for (const [dir, entry] of Object.entries(lock.workspaces)) {
+                  if (dir !== "") lockDirs.set(entry.name, dir);
+                }
+                const checked = [pkg.name];
+                for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+                  const deps = pkg[field];
+                  if (deps === undefined) continue;
+                  if (deps === null || typeof deps !== "object" || Array.isArray(deps)) {
+                    console.error("::error::" + process.env.MANIFEST + " " + field + " is not an object.");
+                    process.exit(1);
+                  }
+                  for (const name of Object.keys(deps)) {
+                    if (name.startsWith("@novaproto/") && !checked.includes(name)) checked.push(name);
+                  }
+                }
+                for (const name of checked) {
+                  const dir = lockDirs.get(name);
+                  if (dir === undefined) {
+                    console.error("::error::bun.lock records no workspace named " + name + "; every @novaproto/* dependency must be a package under packages/.");
+                    process.exit(1);
+                  }
+                  const entry = lock.workspaces[dir];
+                  const manifest = dir + "/package.json";
+                  const version = JSON.parse(fs.readFileSync(manifest, "utf8")).version;
+                  if (entry.version !== version) {
+                    console.error("::error::bun.lock records " + entry.name + "@" + entry.version + " under workspaces, but " + manifest + " has version " + version + "; set the same version in bun.lock by hand (bun install does not update it).");
+                    process.exit(1);
+                  }
+                }
+                console.log("Releasing " + actual);
+              } catch (error) {
+                console.error("::error::Release check failed: " + (error && error.message ? error.message : error));
+                process.exit(1);
+              }
+            '
+
+      - name: Install (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      # Build first: each package resolves its @novaproto/* dependencies through
+      # their dist/ type declarations, so the strict typecheck and the
+      # type-aware lint rules need them in place.
+      - name: Build (tsc --build; typechecks every package)
+        run: bun run build
+
+      - name: Lint (no-cross-package-relative + eslint --max-warnings=0 + strict typecheck)
+        run: bun run lint
+
+      - name: Test (every suite, through the check.yml test gate)
+        run: bun scripts/bun-test-gate.ts packages/contracts/test packages/mcp-shared/test packages/mcp/test packages/exec-primitives/test scripts/lint
+
+      - name: Pack and check the entry points and dependency specs
+        env:
+          RELEASE_PACKAGE: ${{ steps.tag.outputs.package }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release-tarball"
+          mkdir "$out"
+          tarball="$out/$RELEASE_PACKAGE.tgz"
+          # Absolute: inside a workspace, a relative --filename resolves against the workspace root.
+          ( cd "packages/$RELEASE_PACKAGE" && bun pm pack --filename "$tarball" )
+          if [ "$(ls -A "$out")" != "$RELEASE_PACKAGE.tgz" ]; then
+            echo "::error::$out must contain only $RELEASE_PACKAGE.tgz."
+            exit 1
+          fi
+          listing="$(mktemp)"
+          tar -tzf "$tarball" > "$listing"
+          manifest_dir="$(mktemp -d)"
+          tar -xzf "$tarball" -C "$manifest_dir" package/package.json
+          # bun pm pack rewrites workspace:* to the version bun.lock records under
+          # workspaces; npm would publish a workspace: spec as-is. Every
+          # dependency that a consumer installs must be a registry version, range
+          # or dist-tag, and an @novaproto/* one the exact version in that
+          # dependency's package.json, which the publish job checks is live on
+          # the registry. As in the release check, try/catch makes a thrown
+          # error fail the step instead of letting bun -e exit 0.
+          LISTING="$listing" \
+          MANIFEST="$manifest_dir/package/package.json" \
+            bun -e '
+              try {
+                const fs = require("node:fs");
+                const pkg = JSON.parse(fs.readFileSync(process.env.MANIFEST, "utf8"));
+                const listing = new Set(fs.readFileSync(process.env.LISTING, "utf8").split("\n"));
+                const workspaceVersions = new Map();
+                for (const dir of fs.readdirSync("packages")) {
+                  const file = "packages/" + dir + "/package.json";
+                  if (!fs.existsSync(file)) continue;
+                  const workspace = JSON.parse(fs.readFileSync(file, "utf8"));
+                  workspaceVersions.set(workspace.name, workspace.version);
+                }
+                const entries = [];
+                const collect = (value) => {
+                  if (typeof value === "string") entries.push(value);
+                  else if (value !== null && typeof value === "object") for (const v of Object.values(value)) collect(v);
+                };
+                collect(pkg.main);
+                collect(pkg.types);
+                collect(pkg.bin);
+                collect(pkg.exports);
+                if (entries.length === 0) {
+                  console.error("::error::Tarball package.json declares no entry point.");
+                  process.exit(1);
+                }
+                for (const entry of entries) {
+                  if (!listing.has("package/" + entry.replace(/^\.\//, ""))) {
+                    console.error("::error::Entry point " + entry + " is not in the tarball.");
+                    process.exit(1);
+                  }
+                }
+                const problems = [];
+                for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+                  const deps = pkg[field];
+                  if (deps === undefined) continue;
+                  if (deps === null || typeof deps !== "object" || Array.isArray(deps)) {
+                    problems.push(field + " is not an object");
+                    continue;
+                  }
+                  for (const [name, spec] of Object.entries(deps)) {
+                    const where = field + " " + JSON.stringify(name) + ": " + JSON.stringify(spec);
+                    // npm installs a spec ending in .tgz, .tar or .tar.gz as a local
+                    // file; the dot in tar.gz is deliberately unescaped, so this
+                    // test is at least as wide as the one npm applies.
+                    if (typeof spec !== "string" || !/^[0-9A-Za-z.^~<>=|* +-]+$/.test(spec) || spec.trim() !== spec || spec.startsWith(".") || /[.](?:tgz|tar.gz|tar)$/i.test(spec)) {
+                      problems.push(where);
+                    } else if (name.startsWith("@novaproto/")) {
+                      if (!/^@novaproto\/[a-z0-9][a-z0-9._-]*$/.test(name) || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(spec)) {
+                        problems.push(where + " (an @novaproto/* dependency must be an exact X.Y.Z)");
+                      } else if (!workspaceVersions.has(name)) {
+                        problems.push(where + " (" + name + " is not a package under packages/)");
+                      } else if (spec !== workspaceVersions.get(name)) {
+                        problems.push(where + " (its package.json has version " + workspaceVersions.get(name) + "; set that version for it under workspaces in bun.lock)");
+                      } else {
+                        console.log("Packed " + field + " " + name + "@" + spec);
+                      }
+                    }
+                  }
+                }
+                if (problems.length > 0) {
+                  console.error("::error::Tarball dependency specs must be registry versions, ranges or dist-tags, and an @novaproto/* one the exact version in its package.json; workspace:, catalog:, file:, link:, git, URL, path and tarball-file specs are refused: " + problems.join("; "));
+                  process.exit(1);
+                }
+              } catch (error) {
+                console.error("::error::Tarball check failed: " + (error && error.message ? error.message : error));
+                process.exit(1);
+              }
+            '
+          sha256sum "$tarball"
+
+      - name: Upload the tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-tarball
+          path: ${{ runner.temp }}/release-tarball/${{ steps.tag.outputs.package }}.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-release
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC); no other job holds it
+    steps:
+      - name: Download the tarball built by the build job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-tarball
+          path: ${{ runner.temp }}/release-artifact
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+
+      - name: Stage the tarball on npm (live only after 2FA approval on npmjs.com)
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # No npm token: npm falls back to one silently if the OIDC exchange fails.
+          for var in NODE_AUTH_TOKEN NPM_CONFIG_TOKEN NPM_TOKEN; do
+            if [ -n "${!var:-}" ]; then
+              echo "::error::$var is set; this workflow publishes only through npm trusted publishing."
+              exit 1
+            fi
+          done
+
+          # The package comes from the tag alone: one anchored whole-tag pattern
+          # per package, exactly one of which must match. A pre-release needs
+          # --tag, which this step does not pass.
+          package=""
+          matches=0
+          for candidate in contracts mcp-shared mcp; do
+            if [[ "$RELEASE_TAG" =~ ^${candidate}-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              package="$candidate"
+              matches=$((matches + 1))
+            fi
+          done
+          if [ "$matches" != 1 ]; then
+            echo "::error::Tag '$RELEASE_TAG' is not <package>-v<major>.<minor>.<patch> for package contracts, mcp-shared or mcp."
+            exit 1
+          fi
+          tarball="$package.tgz"
+
+          # The artifact directory must hold only the tarball, and npm runs from a
+          # fresh directory holding a copy of it, so no .npmrc from the artifact
+          # becomes npm's project config.
+          if [ "$(ls -A "$RUNNER_TEMP/release-artifact")" != "$tarball" ]; then
+            echo "::error::The release-tarball artifact must contain only $tarball."
+            exit 1
+          fi
+          work="$(mktemp -d)"
+          cp "$RUNNER_TEMP/release-artifact/$tarball" "$work/"
+          cd "$work"
+
+          npm_config="$(npm config list)"
+          if grep -qE '_auth|_password' <<<"$npm_config"; then
+            echo "::error::npm configuration carries an auth entry; this workflow publishes only through npm trusted publishing."
+            exit 1
+          fi
+          # tag, force and provenance change what is staged and under which
+          # dist-tag (even an explicit tag=latest skips npm's pre-release and
+          # backport refusals); a proxy or strict-ssl=false exposes the OIDC
+          # exchange. All must stay at npm's defaults, in every config layer.
+          if grep -qE '^(; )?(tag|force|provenance|provenance-file|proxy|https-proxy|strict-ssl) = ' <<<"$npm_config" ||
+            [ "$(npm config get force)" != false ] ||
+            [ "$(npm config get proxy)" != null ] ||
+            [ "$(npm config get https-proxy)" != null ] ||
+            [ "$(npm config get strict-ssl)" != true ]; then
+            echo "::error::npm configuration sets tag, force, provenance, proxy, https-proxy or strict-ssl; npm stage publish runs only with npm's defaults for these."
+            exit 1
+          fi
+          if [ "$(npm config get registry)" != "https://registry.npmjs.org/" ] ||
+            [ "$(npm config get @novaproto:registry)" != "undefined" ]; then
+            echo "::error::npm must publish @novaproto packages to https://registry.npmjs.org/."
+            exit 1
+          fi
+
+          # npm stage publish needs npm >= 11.15.0.
+          npm_version="$(npm --version)"
+          if ! [[ "$npm_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Unrecognized npm version '$npm_version'; npm >= 11.15.0 is required."
+            exit 1
+          fi
+          npm_major="${BASH_REMATCH[1]}"
+          npm_minor="${BASH_REMATCH[2]}"
+          if [ "$npm_major" -lt 11 ] || { [ "$npm_major" -eq 11 ] && [ "$npm_minor" -lt 15 ]; }; then
+            echo "::error::npm $npm_version is too old; npm stage publish needs npm >= 11.15.0."
+            exit 1
+          fi
+
+          # npm strips the first path segment of every tarball entry, reads the
+          # last package.json it finds (including one after a lone zero block),
+          # and lets that manifest's publishConfig override registry and tag. So
+          # every entry must sit under package/ with no empty, "." or ".."
+          # segment, package/package.json must appear exactly once (counting past
+          # zero blocks), and publishConfig must be exactly {"access":"public"}.
+          # A .npmrc cannot set registry or tag either: see the checks above.
+          listing="$(tar --ignore-zeros -tzf "./$tarball")"
+          if grep -qv '^package/' <<<"$listing" ||
+            grep -qE '//|(^|/)\.\.?(/|$)' <<<"$listing" ||
+            [ "$(grep -cx 'package/package.json' <<<"$listing")" != 1 ]; then
+            echo "::error::Tarball is not a single package/ tree with exactly one package/package.json."
+            exit 1
+          fi
+          manifest_dir="$(mktemp -d)"
+          tar --ignore-zeros -xzf "./$tarball" -C "$manifest_dir" package/package.json
+          novaproto_deps="$(mktemp)"
+          EXPECTED="@novaproto/$package@${RELEASE_TAG#"$package-v"}" \
+          MANIFEST="$manifest_dir/package/package.json" \
+          NOVAPROTO_DEPS="$novaproto_deps" \
+            node -e '
+              const fs = require("node:fs");
+              const pkg = JSON.parse(fs.readFileSync(process.env.MANIFEST, "utf8"));
+              const actual = pkg.name + "@" + pkg.version;
+              if (actual !== process.env.EXPECTED) {
+                console.error("::error::Tarball is " + actual + "; the tag names " + process.env.EXPECTED + ".");
+                process.exit(1);
+              }
+              if ("private" in pkg) {
+                console.error("::error::Tarball package.json has a private field.");
+                process.exit(1);
+              }
+              const publishConfig = JSON.stringify(pkg.publishConfig);
+              if (publishConfig !== JSON.stringify({ access: "public" })) {
+                console.error("::error::Tarball publishConfig is " + publishConfig + "; only {\"access\":\"public\"} is allowed.");
+                process.exit(1);
+              }
+              // Every dependency that a consumer installs must be a registry
+              // version, range or dist-tag, and an @novaproto/* one an exact
+              // X.Y.Z, which must be live on the registry (checked below).
+              const problems = [];
+              const novaproto = [];
+              for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+                const deps = pkg[field];
+                if (deps === undefined) continue;
+                if (deps === null || typeof deps !== "object" || Array.isArray(deps)) {
+                  problems.push(field + " is not an object");
+                  continue;
+                }
+                for (const [name, spec] of Object.entries(deps)) {
+                  const where = field + " " + JSON.stringify(name) + ": " + JSON.stringify(spec);
+                  // npm installs a spec ending in .tgz, .tar or .tar.gz as a local
+                  // file; the dot in tar.gz is deliberately unescaped, so this
+                  // test is at least as wide as the one npm applies.
+                  if (typeof spec !== "string" || !/^[0-9A-Za-z.^~<>=|* +-]+$/.test(spec) || spec.trim() !== spec || spec.startsWith(".") || /[.](?:tgz|tar.gz|tar)$/i.test(spec)) {
+                    problems.push(where);
+                  } else if (name.startsWith("@novaproto/")) {
+                    if (!/^@novaproto\/[a-z0-9][a-z0-9._-]*$/.test(name) || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(spec)) {
+                      problems.push(where + " (an @novaproto/* dependency must be an exact X.Y.Z)");
+                    } else {
+                      novaproto.push(name + "@" + spec);
+                    }
+                  }
+                }
+              }
+              if (problems.length > 0) {
+                console.error("::error::Tarball dependency specs must be registry versions, ranges or dist-tags; workspace:, catalog:, file:, link:, git, URL, path and tarball-file specs are refused: " + problems.join("; "));
+                process.exit(1);
+              }
+              fs.writeFileSync(process.env.NOVAPROTO_DEPS, novaproto.map((dep) => dep + "\n").join(""));
+              console.log("Staging " + actual);
+            '
+
+          # Release order contracts -> mcp-shared -> mcp: every @novaproto/*
+          # dependency version must already be live on the registry. A staged
+          # version is not available for public access until it is approved, so
+          # it does not count. bun pm pack writes exact pins, so each dependency's
+          # published dependencies must also pin every @novaproto/* package this
+          # tarball pins at the same version; otherwise a consumer installs two
+          # versions of it. The list is read on fd 3 so no command in the loop
+          # can consume it from stdin.
+          tarball_pins="$(cat "$novaproto_deps")"
+          while IFS= read -r dep <&3; do
+            if ! live="$(npm view "$dep" version --prefer-online)" || [ "$live" != "${dep##*@}" ]; then
+              echo "::error::$dep is not live on https://registry.npmjs.org/; release and approve it first, then re-run this job."
+              exit 1
+            fi
+            echo "Dependency $dep is live."
+            if ! published_deps="$(npm view "$dep" dependencies --json --prefer-online)"; then
+              echo "::error::Could not read the dependencies of $dep from https://registry.npmjs.org/."
+              exit 1
+            fi
+            DEP="$dep" \
+            PUBLISHED_DEPS="$published_deps" \
+            TARBALL_PINS="$tarball_pins" \
+              node -e '
+                try {
+                  const dep = process.env.DEP;
+                  const depName = dep.slice(0, dep.lastIndexOf("@"));
+                  // npm view prints nothing when the field is absent or empty.
+                  const raw = process.env.PUBLISHED_DEPS.trim();
+                  const published = raw === "" ? {} : JSON.parse(raw);
+                  if (published === null || typeof published !== "object" || Array.isArray(published)) {
+                    console.error("::error::npm view " + dep + " dependencies did not return an object.");
+                    process.exit(1);
+                  }
+                  const mismatches = [];
+                  for (const pin of process.env.TARBALL_PINS.split("\n")) {
+                    if (pin === "") continue;
+                    const name = pin.slice(0, pin.lastIndexOf("@"));
+                    const version = pin.slice(pin.lastIndexOf("@") + 1);
+                    if (name.startsWith("@novaproto/") && Object.hasOwn(published, name) && published[name] !== version) {
+                      mismatches.push(dep + " pins " + name + "@" + published[name] + " where this tarball pins " + pin);
+                    }
+                  }
+                  if (mismatches.length > 0) {
+                    console.error("::error::" + mismatches.join("; ") + ". After releasing a package, re-release every package that depends on it, in order, before releasing anything further downstream: release " + depName + " again so it pins the same versions, then release this package from a commit that pins that new version.");
+                    process.exit(1);
+                  }
+                  console.log("Dependency " + dep + " pins the same @novaproto/* versions.");
+                } catch (error) {
+                  console.error("::error::Dependency consistency check failed: " + (error && error.message ? error.message : error));
+                  process.exit(1);
+                }
+              '
+          done 3< "$novaproto_deps"
+
+          npm stage publish "./$tarball"
