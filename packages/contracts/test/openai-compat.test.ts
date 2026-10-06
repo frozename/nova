@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import type { UnifiedStreamEvent } from "../src/index.js";
 
+import { UnifiedAiResponseSchema, UnifiedStreamEventSchema } from "../src/index.js";
 import { createOpenAICompatProvider, mergeRequestHeaders } from "../src/providers/openai-compat.js";
 
 type Observation = {
@@ -1893,5 +1894,96 @@ describe("openai-compat provider — request header merge", () => {
     expect(seen?.get("authorization")).toBe("Bearer sk-e2e");
     expect(seen?.get("x-org")).toBe("acme");
     expect(seen?.get("content-type")).toBe("application/json");
+  });
+});
+
+describe("openai-compat — finish_reason fallback and usage gating", () => {
+  const request = { model: "m", messages: [{ role: "user" as const, content: "x" }] };
+
+  function responseBody(finishReason: string | null, usage?: Record<string, number>): object {
+    return {
+      id: "c1",
+      object: "chat.completion",
+      created: 1,
+      model: "m",
+      choices: [
+        { index: 0, message: { role: "assistant", content: "hi" }, finish_reason: finishReason },
+      ],
+      ...(usage ? { usage } : {}),
+    };
+  }
+
+  function provider(
+    body: object,
+    onUsage?: () => void,
+  ): ReturnType<typeof createOpenAICompatProvider> {
+    return createOpenAICompatProvider({
+      name: "fixture",
+      baseUrl: "http://fixture.invalid/v1",
+      apiKey: "k",
+      fetch: Object.assign(() => Promise.resolve(Response.json(body)), {
+        preconnect: () => undefined,
+      }),
+      ...(onUsage ? { onUsage } : {}),
+    });
+  }
+
+  test("stream: unknown finish_reason maps to stop", async () => {
+    const frame = {
+      id: "c1",
+      object: "chat.completion.chunk",
+      created: 1,
+      model: "m",
+      choices: [{ index: 0, delta: { content: "hi" }, finish_reason: "weird" }],
+    };
+    const sse = `data: ${JSON.stringify(frame)}\n\ndata: [DONE]\n\n`;
+    const p = createOpenAICompatProvider({
+      name: "fixture",
+      baseUrl: "http://fixture.invalid/v1",
+      apiKey: "k",
+      fetch: Object.assign(
+        () =>
+          Promise.resolve(new Response(sse, { headers: { "content-type": "text/event-stream" } })),
+        { preconnect: () => undefined },
+      ),
+    });
+    const events: UnifiedStreamEvent[] = [];
+    for await (const event of p.streamResponse?.(request) ?? []) events.push(event);
+    const chunk = events.find((event) => event.type === "chunk");
+    const done = events.find((event) => event.type === "done");
+    expect(chunk?.chunk.choices[0]?.finish_reason).toBe("stop");
+    expect(done?.finish_reason).toBe("stop");
+    for (const event of events)
+      expect(UnifiedStreamEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  test("nonstream: unknown finish_reason maps to stop", async () => {
+    const result = await provider(responseBody("weird")).createResponse(request);
+    expect(result.choices[0]?.finish_reason).toBe("stop");
+    expect(UnifiedAiResponseSchema.safeParse(result).success).toBe(true);
+  });
+
+  test("nonstream: known finish_reason passes through", async () => {
+    const result = await provider(responseBody("length")).createResponse(request);
+    expect(result.choices[0]?.finish_reason).toBe("length");
+  });
+
+  test("nonstream: null finish_reason stays null", async () => {
+    const result = await provider(responseBody(null)).createResponse(request);
+    expect(result.choices[0]?.finish_reason).toBeNull();
+  });
+
+  test("nonstream: onUsage requires all three counts", async () => {
+    let calls = 0;
+    const onUsage = (): void => {
+      calls++;
+    };
+    await provider(responseBody("stop", { prompt_tokens: 1 }), onUsage).createResponse(request);
+    expect(calls).toBe(0);
+    await provider(
+      responseBody("stop", { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }),
+      onUsage,
+    ).createResponse(request);
+    expect(calls).toBe(1);
   });
 });
