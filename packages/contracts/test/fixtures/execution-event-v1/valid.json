@@ -1,0 +1,1046 @@
+{
+  "contract": "ExecutionEventV1",
+  "cases": [
+    {
+      "name": "completed-stream-observed-usage",
+      "description": "Engine stream: acceptance, assistant deltas, a finish_reason chunk, then a completed terminal with upstream proof, the executed model and deployment, and observed usage.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-completed-stream-observed-usage",
+          "attemptId": "att-completed-stream-observed-usage",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-stream-observed-usage",
+          "attemptId": "att-completed-stream-observed-usage",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-completed-stream-observed-usage",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "Hel"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-stream-observed-usage",
+          "attemptId": "att-completed-stream-observed-usage",
+          "sequence": 2,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-completed-stream-observed-usage",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "lo"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-stream-observed-usage",
+          "attemptId": "att-completed-stream-observed-usage",
+          "sequence": 3,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-completed-stream-observed-usage",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": ""
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-stream-observed-usage",
+          "attemptId": "att-completed-stream-observed-usage",
+          "sequence": 4,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "deployment": "dep-llama-8b@3",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "completed-tool-calls",
+      "description": "A client-owned function call delivered as a canonical tool_call payload, completed with finishReason tool_calls.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-completed-tool-calls",
+          "attemptId": "att-completed-tool-calls",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-tool-calls",
+          "attemptId": "att-completed-tool-calls",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "tool_call",
+            "toolCall": {
+              "id": "call-1",
+              "type": "function",
+              "function": {
+                "name": "lookup",
+                "arguments": "{\"q\":\"nova\"}"
+              }
+            },
+            "choiceIndex": 0
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-tool-calls",
+          "attemptId": "att-completed-tool-calls",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "tool_calls",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "completed-empty",
+      "description": "Acceptance followed directly by a completed terminal: a source that completed with no content.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-completed-empty",
+          "attemptId": "att-completed-empty",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-empty",
+          "attemptId": "att-completed-empty",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 3,
+              "output_tokens": 0,
+              "total_tokens": 3
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "completed-cli-buffered-estimated-usage",
+      "description": "A buffered CLI executor in streaming mode: one content event from the buffered result, the executed alias as model, and bytes-based estimated usage.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-completed-cli-buffered-estimated-usage",
+          "attemptId": "att-completed-cli-buffered-estimated-usage",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-cli-buffered-estimated-usage",
+          "attemptId": "att-completed-cli-buffered-estimated-usage",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-completed-cli-buffered-estimated-usage",
+              "object": "chat.completion.chunk",
+              "model": "codex-alias",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "cli marker output"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-cli-buffered-estimated-usage",
+          "attemptId": "att-completed-cli-buffered-estimated-usage",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "codex-alias",
+            "deployment": "dep-cli-codex",
+            "usage": {
+              "source": "estimated",
+              "output_tokens": 4
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "completed-length",
+      "description": "ACP stop reason max_tokens, or an engine finish_reason length: the source completed at its own token limit.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-completed-length",
+          "attemptId": "att-completed-length",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-length",
+          "attemptId": "att-completed-length",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-completed-length",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "partial answer"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-length",
+          "attemptId": "att-completed-length",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "length",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "completed-refused",
+      "description": "ACP stop reason refusal: the source completed by refusing; usage stays unknown.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-completed-refused",
+          "attemptId": "att-completed-refused",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-refused",
+          "attemptId": "att-completed-refused",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-completed-refused",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "I can't help with that."
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-refused",
+          "attemptId": "att-completed-refused",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "refused",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "completed-content-filter",
+      "description": "Provider content filtering ended the response (Nova finish_reason content_filter).",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-completed-content-filter",
+          "attemptId": "att-completed-content-filter",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-content-filter",
+          "attemptId": "att-completed-content-filter",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "content_filter",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancelled-mid-stream",
+      "description": "Caller cancel or client disconnect after output: one cancelled terminal with unknown usage.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-cancelled-mid-stream",
+          "attemptId": "att-cancelled-mid-stream",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-cancelled-mid-stream",
+          "attemptId": "att-cancelled-mid-stream",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-cancelled-mid-stream",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "partial"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-cancelled-mid-stream",
+          "attemptId": "att-cancelled-mid-stream",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "cancelled",
+            "started": true,
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancelled-not-started",
+      "description": "Cancel after acceptance but before the process spawned: exactly one terminal, marked not started.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-cancelled-not-started",
+          "attemptId": "att-cancelled-not-started",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-cancelled-not-started",
+          "attemptId": "att-cancelled-not-started",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "cancelled",
+            "started": false,
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-timeout-not-started",
+      "description": "The deadline passed after acceptance but before spawn: a timeout marked not started.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-timeout-not-started",
+          "attemptId": "att-failed-timeout-not-started",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-timeout-not-started",
+          "attemptId": "att-failed-timeout-not-started",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": false,
+            "error": {
+              "code": "timeout",
+              "message": "deadline passed before start",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-timeout-mid-stream",
+      "description": "The deadline or watchdog fired after output.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-timeout-mid-stream",
+          "attemptId": "att-failed-timeout-mid-stream",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-timeout-mid-stream",
+          "attemptId": "att-failed-timeout-mid-stream",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-failed-timeout-mid-stream",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "slow"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-timeout-mid-stream",
+          "attemptId": "att-failed-timeout-mid-stream",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "timeout",
+              "message": "deadline exceeded",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-output-limit",
+      "description": "The host output cap was reached (CLI stdout overflow, or an ACP output cap after session/cancel, reported locally as truncated): never a partial success.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-output-limit",
+          "attemptId": "att-failed-output-limit",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-output-limit",
+          "attemptId": "att-failed-output-limit",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-failed-output-limit",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "aaaa"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-output-limit",
+          "attemptId": "att-failed-output-limit",
+          "sequence": 2,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-failed-output-limit",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "aaaa"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-output-limit",
+          "attemptId": "att-failed-output-limit",
+          "sequence": 3,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "output-limit",
+              "message": "output exceeded 8 bytes",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-stream-overflow",
+      "description": "A slow consumer exceeded the per-stream queued-byte cap: the stream ends with a typed terminal and upstream is cancelled.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-stream-overflow",
+          "attemptId": "att-failed-stream-overflow",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-stream-overflow",
+          "attemptId": "att-failed-stream-overflow",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-failed-stream-overflow",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "burst"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-stream-overflow",
+          "attemptId": "att-failed-stream-overflow",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "stream-overflow",
+              "message": "queued bytes exceeded cap",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-non-zero-exit",
+      "description": "The CLI process exited non-zero after acceptance.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-non-zero-exit",
+          "attemptId": "att-failed-non-zero-exit",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-non-zero-exit",
+          "attemptId": "att-failed-non-zero-exit",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "non-zero-exit",
+              "message": "exit code 2",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-spawn-failed",
+      "description": "The executable could not be spawned; nothing started.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-spawn-failed",
+          "attemptId": "att-failed-spawn-failed",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-spawn-failed",
+          "attemptId": "att-failed-spawn-failed",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": false,
+            "error": {
+              "code": "spawn-failed",
+              "message": "ENOENT",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-target-unavailable-retryable",
+      "description": "The target became unavailable after acceptance and before any work started. The executor marks it retryable: no side effect and no content, so a caller may submit a new attempt under its own budget.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-target-unavailable-retryable",
+          "attemptId": "att-failed-target-unavailable-retryable",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-target-unavailable-retryable",
+          "attemptId": "att-failed-target-unavailable-retryable",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": false,
+            "error": {
+              "code": "target-unavailable",
+              "message": "engine unreachable",
+              "retryable": true
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-incomplete",
+      "description": "Transport close or process exit before the source's completion signal (an ACP agent exiting before its session/prompt response): never completed.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-incomplete",
+          "attemptId": "att-failed-incomplete",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-incomplete",
+          "attemptId": "att-failed-incomplete",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-failed-incomplete",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "half"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-incomplete",
+          "attemptId": "att-failed-incomplete",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "incomplete",
+              "message": "agent exited before prompt response",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-upstream-error-non-retryable",
+      "description": "ACP stop reason max_turn_requests, or an engine error frame: a non-retryable source error.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-upstream-error-non-retryable",
+          "attemptId": "att-failed-upstream-error-non-retryable",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-upstream-error-non-retryable",
+          "attemptId": "att-failed-upstream-error-non-retryable",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "upstream-error",
+              "message": "max_turn_requests",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-protocol-error",
+      "description": "The source broke its wire protocol (for example a malformed JSON-RPC frame).",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-protocol-error",
+          "attemptId": "att-failed-protocol-error",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-protocol-error",
+          "attemptId": "att-failed-protocol-error",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "protocol-error",
+              "message": "malformed frame",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "failed-internal-error",
+      "description": "The executor itself failed after acceptance.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-failed-internal-error",
+          "attemptId": "att-failed-internal-error",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-failed-internal-error",
+          "attemptId": "att-failed-internal-error",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "internal-error",
+              "message": "executor fault",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "unknown-outcome-after-content",
+      "description": "Caller side: the transport was lost after output and the attempt's status cannot be resolved. Surfaced as unknown, never replayed; usage unknown.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-unknown-outcome-after-content",
+          "attemptId": "att-unknown-outcome-after-content",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-unknown-outcome-after-content",
+          "attemptId": "att-unknown-outcome-after-content",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-unknown-outcome-after-content",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "partial"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-unknown-outcome-after-content",
+          "attemptId": "att-unknown-outcome-after-content",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "unknown-outcome",
+            "message": "tunnel lost after output",
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "unknown-outcome-before-content",
+      "description": "Caller side: the transport was lost after acceptance, before any further event, and status reads unknown. Not a replay signal.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-unknown-outcome-before-content",
+          "attemptId": "att-unknown-outcome-before-content",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-unknown-outcome-before-content",
+          "attemptId": "att-unknown-outcome-before-content",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "unknown-outcome",
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

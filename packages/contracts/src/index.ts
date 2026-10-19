@@ -23,6 +23,8 @@ export * from "./provider.js";
 export * from "./providers/openai-compat.js";
 export * from "./schemas/chat.js";
 export * from "./schemas/embeddings.js";
+export * from "./schemas/execution-event.js";
+export * from "./schemas/execution-sequence.js";
 export * from "./schemas/health.js";
 export * from "./schemas/models.js";
 export * from "./schemas/pricing.js";

@@ -62,6 +62,18 @@ export type UnifiedStreamChunk = z.infer<typeof UnifiedStreamChunkSchema>;
 export const StreamCompletionSchema = z.enum(["upstream", "eof", "error"]);
 export type StreamCompletion = z.infer<typeof StreamCompletionSchema>;
 
+export const UnifiedStreamChunkEventSchema = z.object({
+  type: z.literal("chunk"),
+  chunk: UnifiedStreamChunkSchema,
+});
+
+export const UnifiedStreamToolCallEventSchema = z.object({
+  type: z.literal("tool_call"),
+  toolCall: ToolCallSchema,
+  /** Which choice index the call belongs to (for N>1 sampling). */
+  choiceIndex: z.number().int().nonnegative().default(0),
+});
+
 /**
  * High-level event taxonomy used by orchestrators that want more
  * structure than raw chunks (embersynth multi-stage synthesis, UI
@@ -69,13 +81,8 @@ export type StreamCompletion = z.infer<typeof StreamCompletionSchema>;
  * MAY yield these instead of raw chunks; routers translate both.
  */
 export const UnifiedStreamEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("chunk"), chunk: UnifiedStreamChunkSchema }),
-  z.object({
-    type: z.literal("tool_call"),
-    toolCall: ToolCallSchema,
-    /** Which choice index the call belongs to (for N>1 sampling). */
-    choiceIndex: z.number().int().nonnegative().default(0),
-  }),
+  UnifiedStreamChunkEventSchema,
+  UnifiedStreamToolCallEventSchema,
   z.object({
     type: z.literal("error"),
     error: z.object({
