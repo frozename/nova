@@ -22,7 +22,7 @@ Nova is the shared contract layer for multi-provider AI systems. It gives you on
 
 Implement `AiProvider` once; route, bill, observe, and proxy everywhere. Nova has no opinion about how you serve, route, or fail over — it ships the contracts, not the orchestrator.
 
-Four packages, MIT-licensed, ESM (`"type": "module"`). `@novaproto/contracts`, `@novaproto/mcp-shared` and `@novaproto/mcp` are live on npm at **0.1.0** (the tree carries `@novaproto/contracts` **0.2.0**, not yet released); `@novaproto/exec-primitives` is live at **0.1.0** and released by its own workflow:
+Four packages, MIT-licensed, ESM (`"type": "module"`). `@novaproto/contracts`, `@novaproto/mcp-shared` and `@novaproto/mcp` are live on npm at **0.1.0** (the tree carries all three at **0.2.0**, not yet released); `@novaproto/exec-primitives` is live at **0.1.0** and released by its own workflow:
 
 | Package                      | Role                                                                                                                                                                                                                                                                                                         |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
