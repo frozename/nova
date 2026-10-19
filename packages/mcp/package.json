@@ -1,6 +1,6 @@
 {
   "name": "@novaproto/mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unified MCP facade — roll-up tools across llamactl, sirius-gateway, and embersynth. Operator's single entry point.",
   "license": "MIT",
   "type": "module",

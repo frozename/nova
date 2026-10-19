@@ -48,7 +48,7 @@
     },
     "packages/mcp": {
       "name": "@novaproto/mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "nova-mcp": "./dist/bin/nova-mcp.js",
       },
@@ -67,7 +67,7 @@
     },
     "packages/mcp-shared": {
       "name": "@novaproto/mcp-shared",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@novaproto/contracts": "workspace:*",
         "yaml": "^2.7.0",
