@@ -41,6 +41,16 @@ Each capability below is backed by a real export from
 - **Streaming events** — `UnifiedStreamEventSchema`, a discriminated union of
   `chunk` / `tool_call` / `error` / `done`, with tool-call delta preservation
   (`UnifiedStreamChunkSchema`, `StreamChoiceSchema`, `StreamDeltaSchema`).
+- **Execution events** — `ExecutionEventV1Schema`, one accepted execution
+  attempt as `accepted` → `content` → exactly one `terminal`, with request and
+  attempt identity and a gap-free `sequence` on every event. Content wraps the
+  canonical `chunk` / `tool_call` stream events; the terminal is `completed`
+  (requires `completion: "upstream"`), `cancelled`, `failed` (typed
+  `ExecutionErrorCodeSchema` code) or `unknown-outcome`, and always carries a
+  `UsageObservationV1`. `validateExecutionEventSequence`, or
+  `stepExecutionSequence` + `finishExecutionSequence` for a live stream, returns
+  typed violations. Golden fixtures:
+  [`test/fixtures/execution-event-v1/`](./test/fixtures/execution-event-v1).
 - **Embeddings** — `UnifiedEmbeddingRequestSchema` /
   `UnifiedEmbeddingResponseSchema`, `EmbeddingRowSchema`; string / array /
   token-array input union, `encoding_format`, `dimensions`.

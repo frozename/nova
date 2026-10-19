@@ -1,0 +1,1153 @@
+{
+  "contract": "ExecutionEventV1",
+  "cases": [
+    {
+      "name": "empty",
+      "description": "No events at all.",
+      "events": [],
+      "violations": [
+        {
+          "code": "missing-acceptance",
+          "index": 0
+        },
+        {
+          "code": "missing-terminal",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "name": "content-before-acceptance",
+      "description": "Content precedes the acceptance event.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-content-before-acceptance",
+          "attemptId": "att-content-before-acceptance",
+          "sequence": 0,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-content-before-acceptance",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "early"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-content-before-acceptance",
+          "attemptId": "att-content-before-acceptance",
+          "sequence": 1,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-content-before-acceptance",
+          "attemptId": "att-content-before-acceptance",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "before-acceptance",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "name": "terminal-without-acceptance",
+      "description": "A terminal with no acceptance event anywhere.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-terminal-without-acceptance",
+          "attemptId": "att-terminal-without-acceptance",
+          "sequence": 0,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "before-acceptance",
+          "index": 0
+        },
+        {
+          "code": "missing-acceptance",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "name": "duplicate-acceptance",
+      "description": "Two acceptance events for one attempt.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-duplicate-acceptance",
+          "attemptId": "att-duplicate-acceptance",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-duplicate-acceptance",
+          "attemptId": "att-duplicate-acceptance",
+          "sequence": 1,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-duplicate-acceptance",
+          "attemptId": "att-duplicate-acceptance",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "duplicate-acceptance",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "name": "acceptance-not-at-zero",
+      "description": "The acceptance event does not carry sequence 0.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-acceptance-not-at-zero",
+          "attemptId": "att-acceptance-not-at-zero",
+          "sequence": 1,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-acceptance-not-at-zero",
+          "attemptId": "att-acceptance-not-at-zero",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "sequence-gap",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "name": "sequence-gap",
+      "description": "A sequence number was skipped: a frame was dropped.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-sequence-gap",
+          "attemptId": "att-sequence-gap",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-sequence-gap",
+          "attemptId": "att-sequence-gap",
+          "sequence": 2,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-sequence-gap",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "x"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-sequence-gap",
+          "attemptId": "att-sequence-gap",
+          "sequence": 3,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "sequence-gap",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "name": "non-monotonic-sequence",
+      "description": "A sequence number repeats (a replayed or reordered frame).",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-non-monotonic-sequence",
+          "attemptId": "att-non-monotonic-sequence",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-non-monotonic-sequence",
+          "attemptId": "att-non-monotonic-sequence",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-non-monotonic-sequence",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "x"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-non-monotonic-sequence",
+          "attemptId": "att-non-monotonic-sequence",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-non-monotonic-sequence",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "x"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-non-monotonic-sequence",
+          "attemptId": "att-non-monotonic-sequence",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "non-monotonic-sequence",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "identity-mismatch",
+      "description": "An event carries a different attemptId than the accepted attempt.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-identity-mismatch",
+          "attemptId": "att-identity-mismatch",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-identity-mismatch",
+          "attemptId": "att-other",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-identity-mismatch",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "x"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-identity-mismatch",
+          "attemptId": "att-identity-mismatch",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "identity-mismatch",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "name": "missing-terminal",
+      "description": "The stream ended without a terminal: a socket close is not success evidence.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-missing-terminal",
+          "attemptId": "att-missing-terminal",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-missing-terminal",
+          "attemptId": "att-missing-terminal",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-missing-terminal",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "x"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "missing-terminal",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "error-then-done",
+      "description": "A failure followed by a success-shaped terminal: only the first terminal counts; the second is a violation.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-error-then-done",
+          "attemptId": "att-error-then-done",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-error-then-done",
+          "attemptId": "att-error-then-done",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-error-then-done",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "x"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-error-then-done",
+          "attemptId": "att-error-then-done",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "non-zero-exit",
+              "message": "non-zero-exit",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-error-then-done",
+          "attemptId": "att-error-then-done",
+          "sequence": 3,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "duplicate-terminal",
+          "index": 3
+        }
+      ]
+    },
+    {
+      "name": "late-content-after-terminal",
+      "description": "Output arriving after the terminal.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-late-content-after-terminal",
+          "attemptId": "att-late-content-after-terminal",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-late-content-after-terminal",
+          "attemptId": "att-late-content-after-terminal",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-late-content-after-terminal",
+          "attemptId": "att-late-content-after-terminal",
+          "sequence": 2,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-late-content-after-terminal",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "late"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "event-after-terminal",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "not-started-after-content",
+      "description": "A terminal claims nothing started although content was emitted.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-not-started-after-content",
+          "attemptId": "att-not-started-after-content",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-not-started-after-content",
+          "attemptId": "att-not-started-after-content",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-not-started-after-content",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "x"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-not-started-after-content",
+          "attemptId": "att-not-started-after-content",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "cancelled",
+            "started": false,
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "not-started-after-content",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "retryable-after-content",
+      "description": "A failure marked retryable after output: an attempt is never retried after output.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-retryable-after-content",
+          "attemptId": "att-retryable-after-content",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-retryable-after-content",
+          "attemptId": "att-retryable-after-content",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "chunk",
+            "chunk": {
+              "id": "chunk-req-retryable-after-content",
+              "object": "chat.completion.chunk",
+              "model": "llama-3.1-8b",
+              "created": 1792404000,
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": "x"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-retryable-after-content",
+          "attemptId": "att-retryable-after-content",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "upstream-error",
+              "message": "upstream-error",
+              "retryable": true
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "retryable-after-content",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "completed-without-upstream-proof",
+      "description": "A completed terminal whose evidence is eof: a synthesized end is not completion proof.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-completed-without-upstream-proof",
+          "attemptId": "att-completed-without-upstream-proof",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-without-upstream-proof",
+          "attemptId": "att-completed-without-upstream-proof",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "eof",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "invalid-event",
+          "index": 1
+        },
+        {
+          "code": "missing-terminal",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "completed-without-model",
+      "description": "A completed terminal that does not report the executed model.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-completed-without-model",
+          "attemptId": "att-completed-without-model",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-completed-without-model",
+          "attemptId": "att-completed-without-model",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "invalid-event",
+          "index": 1
+        },
+        {
+          "code": "missing-terminal",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "terminal-without-usage",
+      "description": "A terminal that omits usage instead of reporting it as unknown.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-terminal-without-usage",
+          "attemptId": "att-terminal-without-usage",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-terminal-without-usage",
+          "attemptId": "att-terminal-without-usage",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "cancelled",
+            "started": true
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "invalid-event",
+          "index": 1
+        },
+        {
+          "code": "missing-terminal",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "unknown-outcome-with-observed-usage",
+      "description": "An unknown outcome cannot carry observed usage.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-unknown-outcome-with-observed-usage",
+          "attemptId": "att-unknown-outcome-with-observed-usage",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-unknown-outcome-with-observed-usage",
+          "attemptId": "att-unknown-outcome-with-observed-usage",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "unknown-outcome",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "invalid-event",
+          "index": 1
+        },
+        {
+          "code": "missing-terminal",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "unknown-usage-with-counts",
+      "description": "Usage source unknown must not carry counts (UsageObservationV1).",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-unknown-usage-with-counts",
+          "attemptId": "att-unknown-usage-with-counts",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-unknown-usage-with-counts",
+          "attemptId": "att-unknown-usage-with-counts",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "cancelled",
+            "started": true,
+            "usage": {
+              "source": "unknown",
+              "output_tokens": 0
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "invalid-event",
+          "index": 1
+        },
+        {
+          "code": "missing-terminal",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "unregistered-error-code",
+      "description": "A failed terminal with a code outside the contract vocabulary.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-unregistered-error-code",
+          "attemptId": "att-unregistered-error-code",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-unregistered-error-code",
+          "attemptId": "att-unregistered-error-code",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "queue-full",
+              "message": "queue-full",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "invalid-event",
+          "index": 1
+        },
+        {
+          "code": "missing-terminal",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "content-wraps-done-payload",
+      "description": "A Nova done event carried as content: the terminal is the only end signal.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-content-wraps-done-payload",
+          "attemptId": "att-content-wraps-done-payload",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-content-wraps-done-payload",
+          "attemptId": "att-content-wraps-done-payload",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "done",
+            "finish_reason": "stop",
+            "completion": "upstream"
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-content-wraps-done-payload",
+          "attemptId": "att-content-wraps-done-payload",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "invalid-event",
+          "index": 1
+        },
+        {
+          "code": "sequence-gap",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "content-wraps-error-payload",
+      "description": "A Nova error event carried as content: failures end through a failed terminal.",
+      "events": [
+        {
+          "v": 1,
+          "requestId": "req-content-wraps-error-payload",
+          "attemptId": "att-content-wraps-error-payload",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-content-wraps-error-payload",
+          "attemptId": "att-content-wraps-error-payload",
+          "sequence": 1,
+          "type": "content",
+          "payload": {
+            "type": "error",
+            "error": {
+              "message": "boom"
+            }
+          }
+        },
+        {
+          "v": 1,
+          "requestId": "req-content-wraps-error-payload",
+          "attemptId": "att-content-wraps-error-payload",
+          "sequence": 2,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "failed",
+            "started": true,
+            "error": {
+              "code": "upstream-error",
+              "message": "upstream-error",
+              "retryable": false
+            },
+            "usage": {
+              "source": "unknown"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "invalid-event",
+          "index": 1
+        },
+        {
+          "code": "sequence-gap",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "name": "unsupported-version",
+      "description": "An event with a version other than 1.",
+      "events": [
+        {
+          "v": 2,
+          "requestId": "req-unsupported-version",
+          "attemptId": "att-unsupported-version",
+          "sequence": 0,
+          "type": "accepted",
+          "acceptedAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "v": 1,
+          "requestId": "req-unsupported-version",
+          "attemptId": "att-unsupported-version",
+          "sequence": 1,
+          "type": "terminal",
+          "terminal": {
+            "outcome": "completed",
+            "completion": "upstream",
+            "finishReason": "stop",
+            "model": "llama-3.1-8b",
+            "usage": {
+              "source": "observed",
+              "input_tokens": 12,
+              "output_tokens": 5,
+              "total_tokens": 17,
+              "upstream_request_id": "chatcmpl-abc123"
+            }
+          }
+        }
+      ],
+      "violations": [
+        {
+          "code": "invalid-event",
+          "index": 0
+        },
+        {
+          "code": "sequence-gap",
+          "index": 1
+        },
+        {
+          "code": "before-acceptance",
+          "index": 1
+        },
+        {
+          "code": "missing-acceptance",
+          "index": 2
+        }
+      ]
+    }
+  ]
+}
