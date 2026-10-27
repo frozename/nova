@@ -1,5 +1,9 @@
 # Nova
 
+<p align="center">
+  <img src="./.github/branding/logo.png" alt="Nova logo" width="640" />
+</p>
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![npm @novaproto/contracts](https://img.shields.io/npm/v/@novaproto/contracts.svg?label=%40novaproto%2Fcontracts)](https://www.npmjs.com/package/@novaproto/contracts)
 [![npm @novaproto/mcp-shared](https://img.shields.io/npm/v/@novaproto/mcp-shared.svg?label=%40novaproto%2Fmcp-shared)](https://www.npmjs.com/package/@novaproto/mcp-shared)
