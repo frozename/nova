@@ -593,6 +593,82 @@ test("[B10] onLine emits complete lines and the raw stdout reader still returns"
   }
 });
 
+// The child writes the second byte of U+00E9 only after the parent has
+// received the first one, so the character always straddles two data events.
+async function collectSplitUtf8Lines(which: "stdout" | "stderr"): Promise<string[]> {
+  const dir = makeTmpDir(`utf8-split-${which}`);
+  const redirect = which === "stderr" ? " 1>&2" : "";
+  const lines: string[] = [];
+  let released = false;
+  try {
+    const proc: lib.SupervisedProcess = lib.superviseProcess({
+      command: "sh",
+      args: ["-c", `printf '\\303'${redirect}; read -r reply; printf '\\251\\nx'${redirect}`],
+      cwd: dir,
+      env: hostEnv(dir),
+      signal: new AbortController().signal,
+      cancelGraceMs: 200,
+      watchdogMs: 4_000,
+      onStdoutChunk: () => {
+        if (which === "stdout" && !released) {
+          released = true;
+          proc.stdin?.write("go\n");
+        }
+      },
+      onStderrChunk: () => {
+        if (which === "stderr" && !released) {
+          released = true;
+          proc.stdin?.write("go\n");
+        }
+      },
+      onLine: (line, stream) => {
+        if (stream === which) {
+          lines.push(line);
+        }
+      },
+    });
+    const exit = await proc.exit;
+    expect(exit.outcome).toBe("exited");
+    return lines;
+  } finally {
+    cleanupDir(dir);
+  }
+}
+
+test("[B10] onLine keeps a UTF-8 character split across stdout chunks", async () => {
+  expect(await collectSplitUtf8Lines("stdout")).toEqual(["\u00e9", "x"]);
+});
+
+test("[B10] onLine keeps a UTF-8 character split across stderr chunks", async () => {
+  expect(await collectSplitUtf8Lines("stderr")).toEqual(["\u00e9", "x"]);
+});
+
+test("[B10] onLine flushes an incomplete trailing UTF-8 sequence at end of stream", async () => {
+  const dir = makeTmpDir("utf8-tail");
+  const lines: string[] = [];
+  try {
+    const proc = lib.superviseProcess({
+      command: "sh",
+      args: ["-c", "printf 'a\\n\\303'"],
+      cwd: dir,
+      env: hostEnv(dir),
+      signal: new AbortController().signal,
+      cancelGraceMs: 200,
+      watchdogMs: 10_000,
+      onLine: (line, stream) => {
+        if (stream === "stdout") {
+          lines.push(line);
+        }
+      },
+    });
+    const exit = await proc.exit;
+    expect(exit.outcome).toBe("exited");
+    expect(lines).toEqual(["a", "\ufffd"]);
+  } finally {
+    cleanupDir(dir);
+  }
+});
+
 test("[B10] onProcessEvent reports spawn and exit and stderrTailBytes lands on the record", async () => {
   const dir = makeTmpDir("events");
   const events: lib.SupervisorEvent[] = [];

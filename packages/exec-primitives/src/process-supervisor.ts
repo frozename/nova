@@ -1,6 +1,7 @@
 import type { Readable, Writable } from "node:stream";
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 
 import {
   type ExecLogger,
@@ -229,6 +230,8 @@ function normalizeOptions(opts: SuperviseOptions): NormalizedOpts {
 
 interface StreamLineState {
   pending: string;
+  // Holds an incomplete UTF-8 sequence until the next chunk completes it.
+  decoder: StringDecoder;
 }
 
 function checkStreamCap(
@@ -297,7 +300,7 @@ function attachStreamHandler(
     checkStreamCap(state, n, which, killGroup);
     callChunkCallback(buf);
     if (n.onLine !== undefined) {
-      lineState.pending += buf.toString("utf8");
+      lineState.pending += lineState.decoder.write(buf);
       let idx: number;
       while ((idx = lineState.pending.indexOf("\n")) !== -1) {
         const line = lineState.pending.slice(0, idx);
@@ -307,11 +310,10 @@ function attachStreamHandler(
     }
   });
   stream.on("end", () => {
-    if (n.onLine !== undefined && lineState.pending.length > 0) {
-      const pending = lineState.pending;
-      lineState.pending = "";
-      callLineCallback(pending);
-    }
+    // Flush a trailing incomplete sequence the decoder still holds.
+    const pending = lineState.pending + lineState.decoder.end();
+    lineState.pending = "";
+    if (pending.length > 0) callLineCallback(pending);
   });
   stream.resume();
 }
@@ -476,10 +478,30 @@ function wireChildStreams(
     });
   }
   if (stdoutNeedsHandler && proc.stdout !== null) {
-    attachStreamHandler(proc.stdout, state, n, "stdout", { pending: "" }, killGroup);
+    attachStreamHandler(
+      proc.stdout,
+      state,
+      n,
+      "stdout",
+      {
+        pending: "",
+        decoder: new StringDecoder("utf8"),
+      },
+      killGroup,
+    );
   }
   if (stderrNeedsHandler && proc.stderr !== null) {
-    attachStreamHandler(proc.stderr, state, n, "stderr", { pending: "" }, killGroup);
+    attachStreamHandler(
+      proc.stderr,
+      state,
+      n,
+      "stderr",
+      {
+        pending: "",
+        decoder: new StringDecoder("utf8"),
+      },
+      killGroup,
+    );
   }
 }
 
