@@ -23,6 +23,46 @@ function mockHandle(): { handle: lib.StdioAcpHandle; killed: () => boolean } {
   return { handle, killed: () => killed };
 }
 
+interface ExitingMock {
+  handle: lib.StdioAcpHandle;
+  killed: () => boolean;
+  /** Closes stdout the way a real exit does, then settles `exited` with `code`. */
+  exit: (code: number | null) => void;
+  /** Closes stdout but leaves `exited` pending, like a handle whose exit was never reported. */
+  closeStdout: () => void;
+}
+
+function exitingHandle(): ExitingMock {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  let killed = false;
+  let settle: ((code: number | null) => void) | undefined;
+  const exited = new Promise<number | null>((resolve) => {
+    settle = resolve;
+  });
+  const handle: lib.StdioAcpHandle = {
+    stdin,
+    stdout,
+    kill: () => {
+      killed = true;
+    },
+    exited,
+    getStderrTail: () => "",
+    getSpawnError: () => null,
+  };
+  return {
+    handle,
+    killed: () => killed,
+    exit: (code: number | null): void => {
+      stdout.destroy();
+      settle?.(code);
+    },
+    closeStdout: (): void => {
+      stdout.destroy();
+    },
+  };
+}
+
 function spec(scope: string, cwd = "/tmp/warm"): lib.WarmPoolSpec {
   return {
     agent: "fake-acp",
@@ -156,6 +196,98 @@ describe("[B7] warm pool", () => {
       await sleep(300);
       expect(killed()).toBe(true);
       expect(pool.diagnostics().live).toBe(0);
+    } finally {
+      pool.shutdown();
+    }
+  });
+
+  test("[B7] a warm entry whose process exits with code 0 leaves the pool without a warning", async () => {
+    const warnings: string[] = [];
+    const pool = lib.createAcpWarmPool({
+      now: () => Date.now(),
+      logger: {
+        warn: (message: string): void => {
+          warnings.push(message);
+        },
+      },
+    });
+    try {
+      const mock = exitingHandle();
+      pool.deposit(spec("scope-a"), { client: {}, handle: mock.handle });
+      expect(pool.size()).toBe(1);
+      mock.exit(0);
+      await sleep(0);
+      expect(pool.size()).toBe(0);
+      expect(pool.diagnostics().keys).toEqual([]);
+      expect(warnings).toEqual([]);
+    } finally {
+      pool.shutdown();
+    }
+  });
+
+  test("[B7] a warm entry whose process exits non-zero leaves the pool with a warning", async () => {
+    const warnings: string[] = [];
+    const pool = lib.createAcpWarmPool({
+      now: () => Date.now(),
+      logger: {
+        warn: (message: string): void => {
+          warnings.push(message);
+        },
+      },
+    });
+    try {
+      const mock = exitingHandle();
+      pool.deposit(spec("scope-a"), { client: {}, handle: mock.handle });
+      mock.exit(1);
+      await sleep(0);
+      expect(pool.size()).toBe(0);
+      expect(warnings).toEqual(["acp-warm-pool: crashed warm entry teardown"]);
+    } finally {
+      pool.shutdown();
+    }
+  });
+
+  test("[B7] capacity eviction keeps a live entry when another entry exited with code 0", async () => {
+    let t = 0;
+    const pool = lib.createAcpWarmPool({ maxEntries: 2, now: () => t });
+    try {
+      const a = exitingHandle();
+      const b = exitingHandle();
+      const c = exitingHandle();
+      pool.deposit(spec("scope-a"), { client: {}, handle: a.handle });
+      t = 1;
+      pool.deposit(spec("scope-b"), { client: {}, handle: b.handle });
+      b.exit(0);
+      await sleep(0);
+      t = 2;
+      pool.deposit(spec("scope-c"), { client: {}, handle: c.handle });
+      expect(a.killed()).toBe(false);
+      expect(pool.has(spec("scope-a"))).toBe(true);
+      expect(pool.has(spec("scope-c"))).toBe(true);
+      expect(pool.size()).toBe(2);
+    } finally {
+      pool.shutdown();
+    }
+  });
+
+  test("[B7] capacity eviction prunes an entry whose stdout closed before its exit was reported", () => {
+    let t = 0;
+    const pool = lib.createAcpWarmPool({ maxEntries: 2, now: () => t });
+    try {
+      const a = exitingHandle();
+      const b = exitingHandle();
+      const c = exitingHandle();
+      pool.deposit(spec("scope-a"), { client: {}, handle: a.handle });
+      t = 1;
+      pool.deposit(spec("scope-b"), { client: {}, handle: b.handle });
+      b.closeStdout();
+      t = 2;
+      pool.deposit(spec("scope-c"), { client: {}, handle: c.handle });
+      expect(a.killed()).toBe(false);
+      expect(b.killed()).toBe(true);
+      expect(pool.has(spec("scope-a"))).toBe(true);
+      expect(pool.has(spec("scope-c"))).toBe(true);
+      expect(pool.size()).toBe(2);
     } finally {
       pool.shutdown();
     }
