@@ -19,21 +19,39 @@
 //   `z.looseObject({})` pass-through schema — this preserves every
 //   field through validation (default v4 `z.object` strips extras).
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 
 import { z } from "zod";
 
 import type { Downstream } from "./downstream.js";
 
 export interface ProxySkip {
+  /** The skipped tool's name, or "*" when the downstream's tools/list itself failed. */
   name: string;
   from: string;
-  reason: "collision" | "schema-invalid";
+  reason: "collision" | "schema-invalid" | "list-failed";
 }
 
 export interface MountProxyResult {
   mounted: number;
   skipped: ProxySkip[];
+}
+
+// tools/list can reject after a successful connect: a downstream without the
+// tools capability answers -32601, the request can time out, or the child can
+// exit. Log it and return null so the caller skips this downstream only.
+async function listDownstreamTools(
+  downstreamName: string,
+  client: Downstream["client"],
+): Promise<Tool[] | null> {
+  try {
+    const { tools } = await client.listTools();
+    return tools;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`nova-mcp: proxy: listTools failed for "${downstreamName}": ${msg}\n`);
+    return null;
+  }
 }
 
 /**
@@ -53,7 +71,11 @@ export async function mountProxyTools(
   let mounted = 0;
 
   for (const { name: downstreamName, client } of downstreams) {
-    const { tools } = await client.listTools();
+    const tools = await listDownstreamTools(downstreamName, client);
+    if (tools === null) {
+      skipped.push({ name: "*", from: downstreamName, reason: "list-failed" });
+      continue;
+    }
     for (const tool of tools) {
       if (taken.has(tool.name)) {
         skipped.push({ name: tool.name, from: downstreamName, reason: "collision" });
