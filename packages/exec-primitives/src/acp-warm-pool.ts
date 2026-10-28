@@ -156,6 +156,9 @@ class AcpWarmPoolImpl implements AcpWarmPool {
     if (this.closed) {
       return rejectDeposit(depositEntry, opts);
     }
+    // Free slots held by entries that already stopped, so capacity eviction
+    // only ever chooses among live entries.
+    this.pruneStopped();
     if (!this.makeRoomForKey(key)) return rejectDeposit(depositEntry, opts);
     if (!this.makeRoomTotal()) return rejectDeposit(depositEntry, opts);
 
@@ -172,13 +175,7 @@ class AcpWarmPoolImpl implements AcpWarmPool {
     updated.push(entry);
     this.entries.set(key, updated);
     void entry.handle.exited.then((code) => {
-      if (code !== 0 && this.entries.get(key)?.includes(entry) === true) {
-        this.logger?.warn?.("acp-warm-pool: crashed warm entry teardown", {
-          key,
-          exitCode: code,
-        });
-        this.teardownEntry(key, entry);
-      }
+      this.onEntryExited(key, entry, code);
     });
     return entry;
   }
@@ -252,6 +249,28 @@ class AcpWarmPoolImpl implements AcpWarmPool {
       entry.handle.kill();
     } catch {
       /* ignore */
+    }
+  }
+
+  private onEntryExited(key: string, entry: AcpWarmPoolEntry, code: number | null): void {
+    // Any exit makes a pooled entry unusable; only a non-zero or signal exit is worth a warning.
+    if (this.entries.get(key)?.includes(entry) !== true) {
+      return;
+    }
+    if (code !== 0) {
+      this.logger?.warn?.("acp-warm-pool: crashed warm entry teardown", {
+        key,
+        exitCode: code,
+      });
+    }
+    this.teardownEntry(key, entry);
+  }
+
+  private pruneStopped(): void {
+    for (const { key, entry } of this.allEntries()) {
+      if (!this.isRunning(entry)) {
+        this.teardownEntry(key, entry);
+      }
     }
   }
 
