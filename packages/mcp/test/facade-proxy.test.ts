@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { DownstreamSpec } from "../src/facade/config.js";
 
 import { bootDownstreamWithTransport, type Downstream } from "../src/facade/downstream.js";
-import { mountProxyTools } from "../src/facade/proxy.js";
+import { type MountProxyResult, mountProxyTools } from "../src/facade/proxy.js";
 
 /**
  * Phase-3 proxy layer tests. Two or more fake "downstream" `McpServer`
@@ -73,6 +73,39 @@ async function connectedUpstream(
 function textOf(result: unknown): string {
   const content = (result as { content?: { type: string; text: string }[] }).content ?? [];
   return content[0]?.text ?? "";
+}
+
+// A downstream that registers only a resource never advertises the tools
+// capability, so its tools/list answers -32601 Method not found.
+async function makeToollessDownstream(name: string): Promise<Downstream> {
+  const server = new McpServer({ name: `fake-${name}`, version: "0.0.0" });
+  server.registerResource(
+    "only-resource",
+    "nova-test://only-resource",
+    { mimeType: "text/plain" },
+    (uri: URL): { contents: { text: string; uri: string }[] } => ({
+      contents: [{ uri: uri.href, text: "resource-body" }],
+    }),
+  );
+  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverSide);
+  return await bootDownstreamWithTransport(specOf(name), clientSide);
+}
+
+interface SettledMount {
+  error: string | null;
+  result: MountProxyResult | null;
+}
+
+// Turns a rejection into data so a test fails on expect(error).toBeNull()
+// instead of on an uncaught throw.
+async function mountSettled(upstream: McpServer, downstreams: Downstream[]): Promise<SettledMount> {
+  try {
+    const result = await mountProxyTools(upstream, downstreams);
+    return { error: null, result };
+  } catch (err) {
+    return { error: String(err), result: null };
+  }
 }
 
 // stderr spy ------------------------------------------------------------
@@ -219,6 +252,59 @@ describe("facade/proxy mountProxyTools", () => {
       // Restore so close() doesn't explode.
       (d1.client as unknown as { callTool: unknown }).callTool = originalCallTool;
       await d1.close();
+    }
+  });
+
+  test("listTools rejection: that downstream is skipped and later ones still mount", async () => {
+    const a = await makeDownstream("a", [{ name: "a.ping", response: "pong" }]);
+    const b = await makeDownstream("b", [{ name: "b.ping", response: "unused" }]);
+    (b.client as unknown as { listTools: unknown }).listTools = (): Promise<never> =>
+      Promise.reject(new Error("list boom"));
+
+    const upstream = new McpServer({ name: "up", version: "0.0.0" });
+    // The failing downstream comes first, so a break or return would leave "a" unmounted.
+    const { error, result } = await mountSettled(upstream, [b, a]);
+
+    expect(error).toBeNull();
+    expect(result?.mounted).toBe(1);
+    expect(result?.skipped).toEqual([{ name: "*", from: "b", reason: "list-failed" }]);
+    expect(
+      stderrWrites.some(
+        (line) => line.includes('listTools failed for "b"') && line.includes("list boom"),
+      ),
+    ).toBe(true);
+
+    const { client, close } = await connectedUpstream(upstream);
+    try {
+      const list = await client.listTools();
+      expect(list.tools.map((t) => t.name)).toEqual(["a.ping"]);
+    } finally {
+      await close();
+      await a.close();
+      await b.close();
+    }
+  });
+
+  test("downstream without the tools capability is skipped, the others still mount", async () => {
+    const a = await makeDownstream("a", [{ name: "a.ping", response: "pong" }]);
+    const b = await makeToollessDownstream("b");
+
+    const upstream = new McpServer({ name: "up", version: "0.0.0" });
+    const { error, result } = await mountSettled(upstream, [a, b]);
+
+    expect(error).toBeNull();
+    expect(result?.mounted).toBe(1);
+    expect(result?.skipped).toEqual([{ name: "*", from: "b", reason: "list-failed" }]);
+    expect(stderrWrites.some((line) => line.includes('listTools failed for "b"'))).toBe(true);
+
+    const { client, close } = await connectedUpstream(upstream);
+    try {
+      const list = await client.listTools();
+      expect(list.tools.map((t) => t.name)).toEqual(["a.ping"]);
+    } finally {
+      await close();
+      await a.close();
+      await b.close();
     }
   });
 });
