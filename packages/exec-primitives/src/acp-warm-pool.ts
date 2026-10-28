@@ -112,6 +112,8 @@ class AcpWarmPoolImpl implements AcpWarmPool {
   private readonly maxEntriesPerKey: number;
   private readonly logger: ExecLogger | undefined;
   private readonly entries = new Map<string, AcpWarmPoolEntry[]>();
+  // First accepted deposit time per handle; a WeakMap does not keep a dropped handle alive.
+  private readonly firstSeen = new WeakMap<StdioAcpHandle, number>();
   private readonly sweepTimer: ReturnType<typeof setInterval>;
   private closed = false;
 
@@ -161,12 +163,15 @@ class AcpWarmPoolImpl implements AcpWarmPool {
     this.pruneStopped();
     if (!this.makeRoomForKey(key)) return rejectDeposit(depositEntry, opts);
     if (!this.makeRoomTotal()) return rejectDeposit(depositEntry, opts);
+    // Keep the first spawn time across re-deposits so maxAgeMs counts from spawn.
+    const spawnedAt = this.firstSeen.get(depositEntry.handle) ?? this.now();
+    this.firstSeen.set(depositEntry.handle, spawnedAt);
 
     const entry: AcpWarmPoolEntry = {
       spec,
       handle: depositEntry.handle,
       client: depositEntry.client,
-      spawnedAt: this.now(),
+      spawnedAt,
       lastIdleAt: this.now(),
       pinned: spec.pinned === true,
       ...(depositEntry.authMethods !== undefined ? { authMethods: depositEntry.authMethods } : {}),
