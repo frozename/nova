@@ -292,4 +292,64 @@ describe("[B7] warm pool", () => {
       pool.shutdown();
     }
   });
+
+  test("[B7] a reused entry is retired once past maxAgeMs since its first deposit", () => {
+    let t = 0;
+    const pool = lib.createAcpWarmPool({ maxAgeMs: 100, now: () => t });
+    const { handle, killed } = mockHandle();
+    try {
+      pool.deposit(spec("scope-a"), { client: {}, handle });
+      t = 60;
+      expect(pool.acquire(spec("scope-a"))).not.toBeNull();
+      const again = pool.deposit(spec("scope-a"), { client: {}, handle });
+      expect(again?.spawnedAt).toBe(0);
+      expect(again?.lastIdleAt).toBe(60);
+      t = 150;
+      expect(pool.acquire(spec("scope-a"))).toBeNull();
+      expect(killed()).toBe(true);
+    } finally {
+      pool.shutdown();
+    }
+  });
+
+  test("[B7] a different handle deposited later gets its own spawn time", () => {
+    let t = 0;
+    const pool = lib.createAcpWarmPool({ maxAgeMs: 100, now: () => t });
+    const first = mockHandle();
+    const second = mockHandle();
+    try {
+      pool.deposit(spec("scope-a"), { client: {}, handle: first.handle });
+      t = 60;
+      expect(pool.acquire(spec("scope-a"))?.handle).toBe(first.handle);
+      const entry = pool.deposit(spec("scope-a"), { client: {}, handle: second.handle });
+      expect(entry?.spawnedAt).toBe(60);
+      t = 150;
+      expect(pool.acquire(spec("scope-a"))?.handle).toBe(second.handle);
+      expect(second.killed()).toBe(false);
+    } finally {
+      pool.shutdown();
+    }
+  });
+
+  test("[B7] a rejected deposit does not record a spawn time for its handle", () => {
+    let t = 0;
+    const pool = lib.createAcpWarmPool({ maxAgeMs: 100, maxEntries: 1, now: () => t });
+    const pinnedSpec: lib.WarmPoolSpec = { ...spec("scope-a"), pinned: true };
+    const holder = mockHandle();
+    const waiting = mockHandle();
+    try {
+      pool.deposit(pinnedSpec, { client: {}, handle: holder.handle });
+      t = 10;
+      expect(
+        pool.deposit(spec("scope-b"), { client: {}, handle: waiting.handle }, { onReject: "keep" }),
+      ).toBeNull();
+      expect(waiting.killed()).toBe(false);
+      pool.evict(pinnedSpec);
+      t = 50;
+      const entry = pool.deposit(spec("scope-b"), { client: {}, handle: waiting.handle });
+      expect(entry?.spawnedAt).toBe(50);
+    } finally {
+      pool.shutdown();
+    }
+  });
 });
