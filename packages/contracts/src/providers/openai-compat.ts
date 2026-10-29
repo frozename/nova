@@ -142,6 +142,26 @@ const SSE_FRAME_SEPARATOR = /\r\n\r\n|\n\n|\r\r/;
 const SSE_LINE_BREAK = /\r?\n|\r/;
 
 /**
+ * The payload of one SSE frame: its `data:` field values, each with one
+ * optional leading space removed, joined with "\n" as the SSE spec
+ * does. `event:`, `id:`, `retry:` and comment (`:`) lines carry no
+ * payload and are skipped. Returns null when the frame has no `data:`
+ * line.
+ */
+function sseFrameData(frame: string): string | null {
+  const dataLines: string[] = [];
+  for (const rawLine of frame.split(SSE_LINE_BREAK)) {
+    const line = rawLine.trimStart();
+    if (!line.startsWith("data:")) {
+      continue;
+    }
+    const value = line.slice(5);
+    dataLines.push(value.startsWith(" ") ? value.slice(1) : value);
+  }
+  return dataLines.length > 0 ? dataLines.join("\n") : null;
+}
+
+/**
  * Merge the caller's signal with a deadline-derived timeout. An
  * already-past deadline yields a pre-aborted signal so fetch rejects
  * before the request leaves.
@@ -662,9 +682,9 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
         }
       };
       const handleFrame = (frame: string): FrameOutcome => {
-        const f = frame.trim();
-        if (!f.startsWith("data:")) return { events: [] };
-        return handlePayload(f.slice(5).trim());
+        const data = sseFrameData(frame);
+        if (data === null) return { events: [] };
+        return handlePayload(data.trim());
       };
       try {
         let eof = false;

@@ -2350,3 +2350,80 @@ describe("openai-compat: CRLF and CR frame separators", () => {
     expect(done?.type === "done" ? done.completion : undefined).toBe("upstream");
   });
 });
+
+/** A finish frame's `data:` line (finish_reason "length"), with no line end. */
+const SCRIPTED_FINISH =
+  'data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}';
+
+describe("openai-compat: SSE field lines around data:", () => {
+  test("event: lines before data: keep every frame and the real finish_reason", async () => {
+    const steps = await collectScriptedSteps(
+      [
+        `event: message\n${SCRIPTED_CHUNK}\n\n`,
+        `event: message\n${SCRIPTED_FINISH}\n\n`,
+        "data: [DONE]\n\n",
+      ],
+      "eof",
+    );
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "chunk", "done"]);
+    const first = scriptedEvent(steps[0]);
+    expect(first?.type === "chunk" ? first.chunk.choices[0]?.delta.content : undefined).toBe("hi");
+    const done = scriptedEvent(steps[2]);
+    expect(done?.type === "done" ? done.finish_reason : undefined).toBe("length");
+    expect(done?.type === "done" ? done.completion : undefined).toBe("upstream");
+  });
+
+  test("an id: line before data: keeps the chunk", async () => {
+    const steps = await collectScriptedSteps(
+      [`id: 1\n${SCRIPTED_CHUNK}\n\n`, "data: [DONE]\n\n"],
+      "eof",
+    );
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "done"]);
+  });
+
+  test("an event: error frame yields one retryable error and no done", async () => {
+    const steps = await collectScriptedSteps(
+      ['event: error\ndata: {"error":{"message":"boom","code":"server_error"}}\n\n'],
+      "eof",
+    );
+    expect(steps.map(scriptedStepType)).toEqual(["error"]);
+    const err = scriptedEvent(steps[0]);
+    expect(err?.type === "error" ? err.error.message : undefined).toBe("boom");
+    expect(err?.type === "error" ? err.error.retryable : undefined).toBe(true);
+  });
+
+  test("comment, id: and retry: lines around data: do not break the payload", async () => {
+    const steps = await collectScriptedSteps(
+      [`: keep-alive\n${SCRIPTED_CHUNK}\nid: 7\nretry: 1000\n\n`, "data: [DONE]\n\n"],
+      "eof",
+    );
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "done"]);
+  });
+
+  test("an event: line in a CRLF frame keeps the chunk", async () => {
+    const steps = await collectScriptedSteps(
+      [`event: message\r\n${SCRIPTED_CHUNK}\r\n\r\n`, "data: [DONE]\r\n\r\n"],
+      "eof",
+    );
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "done"]);
+  });
+
+  test("multi-line data: values in one frame are joined into one payload", async () => {
+    const steps = await collectScriptedSteps(
+      [
+        'data: {"id":"c1","model":"m",\ndata: "choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n\n',
+        "data: [DONE]\n\n",
+      ],
+      "eof",
+    );
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "done"]);
+  });
+
+  test("a frame with no data: line yields nothing (control)", async () => {
+    const steps = await collectScriptedSteps(
+      ["event: ping\nid: 2\n\n", `${SCRIPTED_CHUNK}\n\n`, "data: [DONE]\n\n"],
+      "eof",
+    );
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "done"]);
+  });
+});
