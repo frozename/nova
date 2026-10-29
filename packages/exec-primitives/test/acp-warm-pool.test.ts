@@ -352,4 +352,69 @@ describe("[B7] warm pool", () => {
       pool.shutdown();
     }
   });
+
+  test("[B7] a deposit whose handle already stopped is rejected and does not evict a live entry", () => {
+    const pool = lib.createAcpWarmPool({ now: () => 0 });
+    const a = mockHandle();
+    const b = exitingHandle();
+    try {
+      pool.deposit(spec("scope-a"), { client: {}, handle: a.handle });
+      b.closeStdout();
+      const accepted = pool.deposit(spec("scope-a"), { client: {}, handle: b.handle });
+      expect({
+        accepted: accepted !== null,
+        aKilled: a.killed(),
+        bKilled: b.killed(),
+        has: pool.has(spec("scope-a")),
+        size: pool.size(),
+      }).toEqual({ accepted: false, aKilled: false, bKilled: true, has: true, size: 1 });
+    } finally {
+      pool.shutdown();
+    }
+  });
+
+  test("[B7] a re-deposit past maxAgeMs is rejected and does not evict a live entry", () => {
+    let t = 0;
+    const pool = lib.createAcpWarmPool({ maxAgeMs: 100, now: () => t });
+    const h = mockHandle();
+    const a = mockHandle();
+    try {
+      pool.deposit(spec("scope-a"), { client: {}, handle: h.handle });
+      t = 10;
+      expect(pool.acquire(spec("scope-a"))?.handle).toBe(h.handle);
+      t = 90;
+      pool.deposit(spec("scope-a"), { client: {}, handle: a.handle });
+      t = 120;
+      const accepted = pool.deposit(spec("scope-a"), { client: {}, handle: h.handle });
+      const acquired = pool.acquire(spec("scope-a"));
+      expect({
+        accepted: accepted !== null,
+        aKilled: a.killed(),
+        hKilled: h.killed(),
+        acquiredIsA: acquired?.handle === a.handle,
+      }).toEqual({ accepted: false, aKilled: false, hKilled: true, acquiredIsA: true });
+    } finally {
+      pool.shutdown();
+    }
+  });
+
+  test("[B7] a deposit whose transport is closed does not evict a live entry under another key", () => {
+    const pool = lib.createAcpWarmPool({ maxEntries: 1, now: () => 0 });
+    const a = mockHandle();
+    const b = mockHandle();
+    try {
+      pool.deposit(spec("scope-a"), { client: {}, handle: a.handle });
+      const closedClient: lib.AcpPoolClient = { isTransportOpen: (): boolean => false };
+      const accepted = pool.deposit(spec("scope-b"), { client: closedClient, handle: b.handle });
+      expect({
+        accepted: accepted !== null,
+        aKilled: a.killed(),
+        bKilled: b.killed(),
+        hasA: pool.has(spec("scope-a")),
+        keys: pool.diagnostics().keys.length,
+      }).toEqual({ accepted: false, aKilled: false, bKilled: true, hasA: true, keys: 1 });
+    } finally {
+      pool.shutdown();
+    }
+  });
 });
