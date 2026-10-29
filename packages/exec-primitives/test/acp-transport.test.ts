@@ -34,6 +34,30 @@ function nextWireLine(stream: PassThrough): Promise<Record<string, unknown>> {
   });
 }
 
+function nextFramedMessage(stream: PassThrough): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    let buf = "";
+    const onData = (chunk: Buffer | string): void => {
+      buf += chunk.toString();
+      const headerEnd = buf.indexOf("\r\n\r\n");
+      if (headerEnd === -1) return;
+      const length = Number(buf.slice("Content-Length: ".length, headerEnd));
+      const body = buf.slice(headerEnd + 4);
+      if (body.length < length) return;
+      stream.off("data", onData);
+      resolve(JSON.parse(body.slice(0, length)) as Record<string, unknown>);
+    };
+    stream.on("data", onData);
+  });
+}
+
+function expectNullResult(frame: Record<string, unknown>, id: number): void {
+  expect(frame["id"]).toBe(id);
+  expect(Object.hasOwn(frame, "result")).toBe(true);
+  expect(frame["result"]).toBeNull();
+  expect(Object.hasOwn(frame, "error")).toBe(false);
+}
+
 describe("[B8] closed transport", () => {
   test("[B8] request() on a closed transport rejects AcpTransportClosedError within 50ms", async () => {
     const { client, stdout } = makeClient();
@@ -218,5 +242,45 @@ describe("[B8] stream and handler faults", () => {
       stdout.destroy();
       await pending;
     }
+  });
+});
+
+describe("[#18] request handler success frames", () => {
+  test("[#18] a handler's return value is echoed unchanged as result", async () => {
+    const { client, stdin, stdout } = makeClient();
+    client.onRequest("x/value", () => ({ ok: true }));
+    const framePromise = nextWireLine(stdin);
+    stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: 6, method: "x/value", params: {} })}\n`);
+    const frame = await framePromise;
+    expect(frame).toEqual({ jsonrpc: "2.0", id: 6, result: { ok: true } });
+  });
+
+  test("[#18] a sync handler returning undefined answers result null (newline)", async () => {
+    const { client, stdin, stdout } = makeClient();
+    client.onRequest("x/void", () => undefined);
+    const framePromise = nextWireLine(stdin);
+    stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: 7, method: "x/void", params: {} })}\n`);
+    expectNullResult(await framePromise, 7);
+  });
+
+  test("[#18] an async void handler answers result null (newline)", async () => {
+    const { client, stdin, stdout } = makeClient();
+    client.onRequest("x/async-void", async (): Promise<void> => {
+      await Promise.resolve();
+    });
+    const framePromise = nextWireLine(stdin);
+    stdout.write(
+      `${JSON.stringify({ jsonrpc: "2.0", id: 8, method: "x/async-void", params: {} })}\n`,
+    );
+    expectNullResult(await framePromise, 8);
+  });
+
+  test("[#18] a sync handler returning undefined answers result null (content-length)", async () => {
+    const { client, stdin, stdout } = makeClient({ framing: "content-length" });
+    client.onRequest("x/void", () => undefined);
+    const framePromise = nextFramedMessage(stdin);
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 9, method: "x/void", params: {} });
+    stdout.write(`Content-Length: ${String(Buffer.byteLength(body))}\r\n\r\n${body}`);
+    expectNullResult(await framePromise, 9);
   });
 });
