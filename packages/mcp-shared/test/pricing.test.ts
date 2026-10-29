@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { computeCost, estimateCostUsd, findModelPricing, loadPricing } from "../src/pricing.js";
+import {
+  computeCost,
+  defaultPricingDir,
+  estimateCostUsd,
+  findModelPricing,
+  loadPricing,
+} from "../src/pricing.js";
 
 let dir = "";
 
@@ -196,5 +202,34 @@ describe("findModelPricing", () => {
 
   test("returns undefined when nothing matches", () => {
     expect(findModelPricing("openai", "x", new Map())).toBeUndefined();
+  });
+});
+
+describe("defaultPricingDir", () => {
+  const homeDefault = join(homedir(), ".llamactl", "pricing");
+
+  test("LLAMACTL_PRICING_DIR wins over DEV_STORAGE", () => {
+    expect(defaultPricingDir({ LLAMACTL_PRICING_DIR: "/explicit", DEV_STORAGE: "/dev" })).toBe(
+      "/explicit",
+    );
+  });
+
+  test("LLAMACTL_PRICING_DIR is trimmed", () => {
+    expect(defaultPricingDir({ LLAMACTL_PRICING_DIR: "  /explicit  " })).toBe("/explicit");
+  });
+
+  test("a blank LLAMACTL_PRICING_DIR falls through to DEV_STORAGE/pricing", () => {
+    expect(defaultPricingDir({ LLAMACTL_PRICING_DIR: "   ", DEV_STORAGE: "/dev" })).toBe(
+      join("/dev", "pricing"),
+    );
+  });
+
+  test("DEV_STORAGE is trimmed before pricing is appended", () => {
+    expect(defaultPricingDir({ DEV_STORAGE: "  /dev  " })).toBe(join("/dev", "pricing"));
+  });
+
+  test("a blank or missing DEV_STORAGE falls back to ~/.llamactl/pricing", () => {
+    expect(defaultPricingDir({ DEV_STORAGE: "   " })).toBe(homeDefault);
+    expect(defaultPricingDir({})).toBe(homeDefault);
   });
 });
