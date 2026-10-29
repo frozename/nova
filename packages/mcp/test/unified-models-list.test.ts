@@ -83,6 +83,40 @@ interface ModelEntry {
   alsoAvailableIn?: string[];
 }
 
+type ListBody = {
+  models: ModelEntry[];
+  partial?: { failed: string[]; errors: Record<string, string> };
+};
+
+/** #20: call nova.models.list with healthy llamactl + embersynth fakes and a
+ *  sirius fake that returns `siriusResponse` as a normal (non-isError) result. */
+async function listWithSirius(siriusResponse: unknown): Promise<ListBody> {
+  const llamactl = await makeDownstream("llamactl", [
+    { name: "llamactl.catalog.list", response: [{ id: "x", rel: "x/y.gguf" }] },
+  ]);
+  const sirius = await makeDownstream("sirius", [
+    { name: "sirius.models.list", response: siriusResponse },
+  ]);
+  const embersynth = await makeDownstream("embersynth", [
+    {
+      name: "embersynth.synthetic.list",
+      response: { count: 1, syntheticModels: { "fusion-auto": "auto" } },
+    },
+  ]);
+  const upstream = new McpServer({ name: "up", version: "0.0.0" });
+  registerUnifiedTools(upstream, [llamactl, sirius, embersynth]);
+  const { client, close } = await connectedUpstream(upstream);
+  try {
+    const raw = await client.callTool({ name: "nova.models.list", arguments: {} });
+    return parseResult(raw) as ListBody;
+  } finally {
+    await close();
+    await llamactl.close();
+    await sirius.close();
+    await embersynth.close();
+  }
+}
+
 describe("nova.models.list", () => {
   test("all three reachable — merges and dedupes by id with stable priority", async () => {
     // llamactl claims gpt-4o-mini (via `rel`), plus a local-only entry.
@@ -373,5 +407,40 @@ describe("nova.models.list", () => {
       await llamactl.close();
       await sirius.close();
     }
+  });
+});
+
+describe("[#20] nova.models.list sirius ok:false envelope", () => {
+  test("[#20] a network-failure envelope reports sirius under partial with its error", async () => {
+    const body = await listWithSirius({
+      ok: false,
+      status: 0,
+      body: null,
+      error: "fetch failed: ECONNREFUSED",
+    });
+    expect(body.partial?.failed).toEqual(["sirius"]);
+    expect(body.partial?.errors["sirius"]).toBe("fetch failed: ECONNREFUSED");
+    expect(body.models.map((m) => m.id).sort()).toEqual(["fusion-auto", "x/y.gguf"]);
+  });
+
+  test("[#20] a non-2xx envelope reports sirius under partial with the HTTP status", async () => {
+    const body = await listWithSirius({ ok: false, status: 503, body: "upstream down" });
+    expect(body.partial?.failed).toEqual(["sirius"]);
+    expect(body.partial?.errors["sirius"]).toBe("sirius /v1/models returned HTTP 503");
+    expect(body.models.map((m) => m.id).sort()).toEqual(["fusion-auto", "x/y.gguf"]);
+  });
+
+  test("[#20] an ok:true envelope still lists sirius models with no partial key", async () => {
+    const body = await listWithSirius({
+      ok: true,
+      status: 200,
+      body: { object: "list", data: [{ id: "claude-4.7-sonnet", owned_by: "anthropic" }] },
+    });
+    expect(body.partial).toBeUndefined();
+    expect(body.models.map((m) => m.id).sort()).toEqual([
+      "claude-4.7-sonnet",
+      "fusion-auto",
+      "x/y.gguf",
+    ]);
   });
 });
