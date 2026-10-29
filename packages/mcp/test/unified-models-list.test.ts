@@ -308,4 +308,70 @@ describe("nova.models.list", () => {
       await embersynth.close();
     }
   });
+
+  test("one downstream repeating an id does not list itself in alsoAvailableIn", async () => {
+    // llamactl.catalog.list with scope "all" can return the same rel twice
+    // (a builtin row and a custom row); the first row wins.
+    const llamactl = await makeDownstream("llamactl", [
+      {
+        name: "llamactl.catalog.list",
+        response: [
+          { rel: "org/model.gguf", scope: "builtin" },
+          { rel: "org/model.gguf", scope: "custom" },
+        ],
+      },
+    ]);
+    const upstream = new McpServer({ name: "up", version: "0.0.0" });
+    registerUnifiedTools(upstream, [llamactl]);
+
+    const { client, close } = await connectedUpstream(upstream);
+    try {
+      const raw = await client.callTool({ name: "nova.models.list", arguments: {} });
+      const body = parseResult(raw) as { models: ModelEntry[]; partial?: unknown };
+      expect(body.partial).toBeUndefined();
+      expect(body.models).toHaveLength(1);
+      expect(body.models[0]?.id).toBe("org/model.gguf");
+      expect(body.models[0]?.provenance).toBe("llamactl");
+      expect(body.models[0]?.details).toEqual({ rel: "org/model.gguf", scope: "builtin" });
+      expect(body.models[0]?.alsoAvailableIn).toBeUndefined();
+    } finally {
+      await close();
+      await llamactl.close();
+    }
+  });
+
+  test("a same-source repeat plus another source lists only the other source", async () => {
+    const llamactl = await makeDownstream("llamactl", [
+      {
+        name: "llamactl.catalog.list",
+        response: [
+          { rel: "org/model.gguf", scope: "builtin" },
+          { rel: "org/model.gguf", scope: "custom" },
+        ],
+      },
+    ]);
+    const sirius = await makeDownstream("sirius", [
+      {
+        name: "sirius.models.list",
+        response: { status: 200, body: { object: "list", data: [{ id: "org/model.gguf" }] } },
+      },
+    ]);
+    const upstream = new McpServer({ name: "up", version: "0.0.0" });
+    registerUnifiedTools(upstream, [llamactl, sirius]);
+
+    const { client, close } = await connectedUpstream(upstream);
+    try {
+      const raw = await client.callTool({ name: "nova.models.list", arguments: {} });
+      const body = parseResult(raw) as { models: ModelEntry[]; partial?: unknown };
+      expect(body.partial).toBeUndefined();
+      expect(body.models).toHaveLength(1);
+      expect(body.models[0]?.provenance).toBe("llamactl");
+      expect(body.models[0]?.details).toEqual({ rel: "org/model.gguf", scope: "builtin" });
+      expect(body.models[0]?.alsoAvailableIn).toEqual(["sirius"]);
+    } finally {
+      await close();
+      await llamactl.close();
+      await sirius.close();
+    }
+  });
 });

@@ -157,6 +157,19 @@ async function collectSource(
   }
 }
 
+/** Record that `source` also offers an id another entry already won.
+ *  A repeat from the winning source itself is not "elsewhere" (#15),
+ *  so it leaves `alsoAvailableIn` untouched (no empty array either). */
+function noteAlsoAvailableIn(existing: MergedModel, source: Provenance): void {
+  if (existing.provenance === source) {
+    return;
+  }
+  existing.alsoAvailableIn = existing.alsoAvailableIn ?? [];
+  if (!existing.alsoAvailableIn.includes(source)) {
+    existing.alsoAvailableIn.push(source);
+  }
+}
+
 /** Merge per-source entries in stable PRIORITY order. First occurrence
  *  of an id wins; later sources append to `alsoAvailableIn`. */
 function mergeByPriority(perSource: Partial<Record<Provenance, NormalizedEntry[]>>): MergedModel[] {
@@ -170,10 +183,7 @@ function mergeByPriority(perSource: Partial<Record<Provenance, NormalizedEntry[]
         winners.set(e.id, { id: e.id, provenance: source, details: e.details });
         continue;
       }
-      existing.alsoAvailableIn = existing.alsoAvailableIn ?? [];
-      if (!existing.alsoAvailableIn.includes(source)) {
-        existing.alsoAvailableIn.push(source);
-      }
+      noteAlsoAvailableIn(existing, source);
     }
   }
   return [...winners.values()];
