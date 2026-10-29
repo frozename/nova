@@ -37,16 +37,51 @@ export interface MountProxyResult {
   skipped: ProxySkip[];
 }
 
-// tools/list can reject after a successful connect: a downstream without the
-// tools capability answers -32601, the request can time out, or the child can
-// exit. Log it and return null so the caller skips this downstream only.
+// tools/list is paginated: a page may carry a nextCursor for the next one.
+// The walk ends at the first page without a non-empty nextCursor. A cursor
+// seen before, or more than MAX_TOOL_LIST_PAGES pages, ends it early with a
+// stderr line and keeps the tools collected so far, so a misbehaving
+// downstream cannot hang facade boot.
+const MAX_TOOL_LIST_PAGES = 100;
+
+async function collectToolPages(
+  downstreamName: string,
+  client: Downstream["client"],
+): Promise<Tool[]> {
+  const tools: Tool[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 1; page <= MAX_TOOL_LIST_PAGES; page++) {
+    const result = await client.listTools(cursor === undefined ? undefined : { cursor });
+    tools.push(...result.tools);
+    const next = result.nextCursor;
+    if (next === undefined || next === "") {
+      return tools;
+    }
+    if (seen.has(next)) {
+      process.stderr.write(
+        `nova-mcp: proxy: tools/list for "${downstreamName}" repeated cursor "${next}"; keeping ${String(tools.length)} tool(s) from ${String(page)} page(s)\n`,
+      );
+      return tools;
+    }
+    seen.add(next);
+    cursor = next;
+  }
+  process.stderr.write(
+    `nova-mcp: proxy: tools/list for "${downstreamName}" exceeded ${String(MAX_TOOL_LIST_PAGES)} pages; keeping ${String(tools.length)} tool(s)\n`,
+  );
+  return tools;
+}
+
+// tools/list can reject after a successful connect, on any page: a downstream
+// without the tools capability answers -32601, the request can time out, or the
+// child can exit. Log it and return null so the caller skips this downstream only.
 async function listDownstreamTools(
   downstreamName: string,
   client: Downstream["client"],
 ): Promise<Tool[] | null> {
   try {
-    const { tools } = await client.listTools();
-    return tools;
+    return await collectToolPages(downstreamName, client);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`nova-mcp: proxy: listTools failed for "${downstreamName}": ${msg}\n`);
