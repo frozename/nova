@@ -67,12 +67,30 @@ function normalizeLlamactl(payload: unknown): NormalizedEntry[] {
   return out;
 }
 
+/** #20: sirius-mcp wraps every GET /v1/models reply as `{ok, status, body}`
+ *  (plus `error` on a network failure) and never sets `isError`, so
+ *  `ok: false` is the only failure signal. Throwing lets `collectSource`
+ *  record sirius under `partial`. A payload without an `ok` field (the bare
+ *  `{data: [...]}` shape) passes through unchanged. */
+function assertSiriusEnvelopeOk(rec: Record<string, unknown>): void {
+  if (rec["ok"] !== false) {
+    return;
+  }
+  const error = rec["error"];
+  throw new Error(
+    typeof error === "string" && error.length > 0
+      ? error
+      : `sirius /v1/models returned HTTP ${String(rec["status"])}`,
+  );
+}
+
 function normalizeSirius(payload: unknown): NormalizedEntry[] {
   if (!payload || typeof payload !== "object") return [];
   // sirius.models.list returns the body of GET /v1/models verbatim —
   // an OpenAI-style `{data: [{id, ...}, ...], object: 'list'}` envelope
   // (with a `status` wrapper from `fetchJson` when sirius is reachable).
   const rec = payload as Record<string, unknown>;
+  assertSiriusEnvelopeOk(rec);
   const body = (rec["body"] && typeof rec["body"] === "object" ? rec["body"] : rec) as Record<
     string,
     unknown
