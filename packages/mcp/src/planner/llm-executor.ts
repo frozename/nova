@@ -50,16 +50,45 @@ function defaultRequestId(): string {
   return `planner-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function extractToolCall(response: UnifiedAiResponse): { arguments: string } | null {
-  const choice = response.choices[0];
-  if (!choice) return null;
-  const toolCalls = choice.message.tool_calls ?? [];
+type LooseRecord = Record<string, unknown>;
+
+// #44: createResponse may return the upstream body unvalidated, so the
+// no-tool-call and parse paths read it through `unknown` and never throw.
+function asRecord(value: unknown): LooseRecord | undefined {
+  return typeof value === "object" && value !== null ? (value as LooseRecord) : undefined;
+}
+
+function firstChoice(response: unknown): LooseRecord | undefined {
+  const choices = asRecord(response)?.["choices"];
+  return Array.isArray(choices) ? asRecord(choices[0]) : undefined;
+}
+
+function extractToolCall(choice: LooseRecord | undefined): { arguments: unknown } | null {
+  const toolCalls = asRecord(choice?.["message"])?.["tool_calls"];
+  if (!Array.isArray(toolCalls)) return null;
   for (const tc of toolCalls) {
-    if (tc.function.name === "submit_plan") {
-      return { arguments: tc.function.arguments };
+    const fn = asRecord(asRecord(tc)?.["function"]);
+    if (fn?.["name"] === "submit_plan") {
+      return { arguments: fn["arguments"] };
     }
   }
   return null;
+}
+
+function noToolCallResult(
+  response: unknown,
+  choice: LooseRecord | undefined,
+): PlannerExecutorResult {
+  const finishReason = choice?.["finish_reason"];
+  const finish = typeof finishReason === "string" ? finishReason : "unknown";
+  const content = asRecord(choice?.["message"])?.["content"];
+  const textFallback = typeof content === "string" ? content.slice(0, 300) : "";
+  return {
+    ok: false,
+    reason: "no-tool-call",
+    message: `model returned ${finish} without a submit_plan tool call${textFallback ? `: ${textFallback}` : ""}`,
+    trace: { finishReason: finish, model: asRecord(response)?.["model"] },
+  };
 }
 
 export function createLlmExecutor(opts: CreateLlmExecutorOptions): PlannerExecutor {
@@ -109,30 +138,29 @@ export function createLlmExecutor(opts: CreateLlmExecutorOptions): PlannerExecut
         };
       }
 
-      const toolCall = extractToolCall(response);
-      if (!toolCall) {
-        const finish = response.choices[0]?.finish_reason ?? "unknown";
-        const textFallback =
-          typeof response.choices[0]?.message.content === "string"
-            ? response.choices[0].message.content.slice(0, 300)
-            : "";
+      const choice = firstChoice(response);
+      const toolCall = extractToolCall(choice);
+      if (!toolCall) return noToolCallResult(response, choice);
+
+      const rawArguments = toolCall.arguments;
+      if (typeof rawArguments !== "string") {
         return {
           ok: false,
-          reason: "no-tool-call",
-          message: `model returned ${finish} without a submit_plan tool call${textFallback ? `: ${textFallback}` : ""}`,
-          trace: { finishReason: finish, model: response.model },
+          reason: "parse-failed",
+          message: `submit_plan arguments are not a JSON string (got ${typeof rawArguments})`,
+          trace: { argumentsType: typeof rawArguments },
         };
       }
 
       let parsed: unknown;
       try {
-        parsed = JSON.parse(toolCall.arguments);
+        parsed = JSON.parse(rawArguments);
       } catch (err) {
         return {
           ok: false,
           reason: "parse-failed",
           message: `submit_plan arguments are not valid JSON: ${(err as Error).message}`,
-          trace: { rawArguments: toolCall.arguments.slice(0, 500) },
+          trace: { rawArguments: rawArguments.slice(0, 500) },
         };
       }
 
