@@ -410,10 +410,12 @@ export class StdioAcpClient {
 
     try {
       const result = await handler(message.params);
+      // JSON-RPC 2.0 requires `result` on every success response, and
+      // JSON.stringify drops an undefined property, so a void handler answers null.
       this.writeMessage({
         jsonrpc: "2.0",
         id: message.id,
-        result,
+        result: result ?? null,
       });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
