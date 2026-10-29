@@ -271,3 +271,104 @@ describe("createLlmExecutor — failure modes", () => {
     expect(result.reason).toBe("plan-shape-invalid");
   });
 });
+
+// #44: createResponse returns the upstream body unvalidated, so a malformed
+// 200 body must surface as an ok:false result, never as a rejection.
+type MalformedCase = {
+  body: unknown;
+  message: string;
+  name: string;
+  reason: "no-tool-call" | "parse-failed";
+};
+
+const malformedEnvelope = {
+  id: "resp-1",
+  object: "chat.completion",
+  model: "gpt-fake",
+  created: 1_700_000_000,
+};
+
+function bodyWithToolCall(toolCall: unknown): unknown {
+  return {
+    ...malformedEnvelope,
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content: null, tool_calls: [toolCall] },
+        finish_reason: "tool_calls",
+      },
+    ],
+  };
+}
+
+const malformedCases: MalformedCase[] = [
+  {
+    name: "body without choices",
+    body: { ...malformedEnvelope },
+    reason: "no-tool-call",
+    message: "model returned unknown without a submit_plan tool call",
+  },
+  {
+    name: "choice without message",
+    body: { ...malformedEnvelope, choices: [{ index: 0, finish_reason: "stop" }] },
+    reason: "no-tool-call",
+    message: "model returned stop without a submit_plan tool call",
+  },
+  {
+    name: "tool call without function",
+    body: bodyWithToolCall({ id: "c", type: "function" }),
+    reason: "no-tool-call",
+    message: "model returned tool_calls without a submit_plan tool call",
+  },
+  {
+    name: "submit_plan arguments as an object",
+    body: bodyWithToolCall({
+      id: "c",
+      type: "function",
+      function: { name: "submit_plan", arguments: { steps: [] } },
+    }),
+    reason: "parse-failed",
+    message: "submit_plan arguments are not a JSON string (got object)",
+  },
+  {
+    name: "submit_plan arguments missing",
+    body: bodyWithToolCall({ id: "c", type: "function", function: { name: "submit_plan" } }),
+    reason: "parse-failed",
+    message: "submit_plan arguments are not a JSON string (got undefined)",
+  },
+  {
+    name: "null body",
+    body: null,
+    reason: "no-tool-call",
+    message: "model returned unknown without a submit_plan tool call",
+  },
+];
+
+describe("createLlmExecutor - malformed provider response", () => {
+  for (const row of malformedCases) {
+    test(`${row.name} resolves ${row.reason}`, async () => {
+      const { provider } = fakeProvider({ handler: () => row.body as UnifiedAiResponse });
+      const executor = createLlmExecutor({ provider, model: "gpt-fake" });
+      const out: unknown = await executor
+        .generate({
+          systemMessage: "s",
+          userMessage: "u",
+          submitPlanFunction: { name: "submit_plan", description: "d", parameters: {} },
+          tools: sampleTools,
+        })
+        .catch((error: unknown) => error);
+      expect(out).toMatchObject({ ok: false, reason: row.reason, message: row.message });
+      const planned: unknown = await runPlanner({
+        goal: "something",
+        context: "",
+        tools: sampleTools,
+        executor,
+      }).catch((error: unknown) => error);
+      expect(planned).toMatchObject({
+        ok: false,
+        reason: "executor-failed",
+        message: `${row.reason}: ${row.message}`,
+      });
+    });
+  }
+});
