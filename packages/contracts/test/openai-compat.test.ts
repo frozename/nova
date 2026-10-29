@@ -2201,3 +2201,152 @@ describe("openai-compat — malformed telemetry envelope passthrough", () => {
     expect(obs["total_tokens"]).toBeUndefined();
   });
 });
+
+/**
+ * Request used by the scripted-body tests below.
+ */
+const SCRIPTED_REQUEST = { model: "m", messages: [{ role: "user" as const, content: "x" }] };
+
+/** One chunk frame's `data:` line, with no line end. */
+const SCRIPTED_CHUNK =
+  'data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}';
+
+type ScriptedRead = { done: false; value: Uint8Array } | { done: true; value: undefined };
+
+/** A yielded event, or "starved" when the stream asked for a read past the script. */
+type ScriptedStep = UnifiedStreamEvent | "starved";
+
+/**
+ * A fake fetch whose response body hands out `pieces` one per read().
+ * After the last piece the body reports EOF ("eof") or never settles
+ * ("hang"). In "hang" mode `starved` resolves at the first read past
+ * the script, so a stream that wants more data before yielding a
+ * complete frame is detected without any timer.
+ */
+function scriptedFetch(
+  pieces: string[],
+  end: "eof" | "hang",
+): { fetchImpl: typeof globalThis.fetch; starved: Promise<"starved"> } {
+  const enc = new TextEncoder();
+  let readCount = 0;
+  let resolveStarved: ((value: "starved") => void) | undefined;
+  const starved = new Promise<"starved">((resolve) => {
+    resolveStarved = resolve;
+  });
+  const reader = {
+    read: (): Promise<ScriptedRead> => {
+      const piece = pieces[readCount];
+      readCount += 1;
+      if (piece !== undefined) {
+        return Promise.resolve<ScriptedRead>({ done: false, value: enc.encode(piece) });
+      }
+      if (end === "eof") {
+        return Promise.resolve<ScriptedRead>({ done: true, value: undefined });
+      }
+      resolveStarved?.("starved");
+      return new Promise<ScriptedRead>(() => {
+        // Never settles: the upstream keeps the connection open.
+      });
+    },
+    cancel: (): Promise<void> => Promise.resolve(),
+    releaseLock: (): void => {
+      // Nothing to release on the fake reader.
+    },
+  };
+  const response = { ok: true, status: 200, body: { getReader: (): typeof reader => reader } };
+  const fetchImpl = Object.assign(
+    (): Promise<Response> => Promise.resolve(response as unknown as Response),
+    { preconnect: (): undefined => undefined },
+  );
+  return { fetchImpl, starved };
+}
+
+/**
+ * Drives streamResponse over the scripted body and collects every
+ * yielded event, ending with a "starved" step if the stream asked
+ * for a read past the script.
+ */
+async function collectScriptedSteps(
+  pieces: string[],
+  end: "eof" | "hang",
+): Promise<ScriptedStep[]> {
+  const { fetchImpl, starved } = scriptedFetch(pieces, end);
+  const provider = createOpenAICompatProvider({
+    name: "crlf",
+    baseUrl: "http://probe.invalid/v1",
+    apiKey: "k",
+    fetch: fetchImpl,
+  });
+  const it = provider.streamResponse!(SCRIPTED_REQUEST)[Symbol.asyncIterator]();
+  const steps: ScriptedStep[] = [];
+  for (;;) {
+    const result = await Promise.race([it.next(), starved]);
+    if (result === "starved") {
+      steps.push(result);
+      return steps;
+    }
+    if (result.done === true) {
+      return steps;
+    }
+    steps.push(result.value);
+  }
+}
+
+function scriptedStepType(step: ScriptedStep): string {
+  return step === "starved" ? step : step.type;
+}
+
+function scriptedEvent(step: ScriptedStep | undefined): UnifiedStreamEvent | undefined {
+  return step === "starved" ? undefined : step;
+}
+
+describe("openai-compat: CRLF and CR frame separators", () => {
+  test("a CRLF-terminated frame is yielded while the upstream stays open", async () => {
+    const steps = await collectScriptedSteps([`${SCRIPTED_CHUNK}\r\n\r\n`], "hang");
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "starved"]);
+    const first = scriptedEvent(steps[0]);
+    expect(first?.type === "chunk" ? first.chunk.choices[0]?.delta.content : undefined).toBe("hi");
+  });
+
+  test("an LF-terminated frame is yielded while the upstream stays open (control)", async () => {
+    const steps = await collectScriptedSteps([`${SCRIPTED_CHUNK}\n\n`], "hang");
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "starved"]);
+  });
+
+  test("a CRLF separator split across two reads ends the frame once completed", async () => {
+    const steps = await collectScriptedSteps(
+      [`${SCRIPTED_CHUNK}\r\n\r`, "\ndata: [DONE]\r\n\r\n"],
+      "hang",
+    );
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "done"]);
+    const done = scriptedEvent(steps[1]);
+    expect(done?.type === "done" ? done.completion : undefined).toBe("upstream");
+  });
+
+  test("lone-CR blank lines separate frames", async () => {
+    const steps = await collectScriptedSteps([`${SCRIPTED_CHUNK}\r\r`, "data: [DONE]\r\r"], "hang");
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "done"]);
+    const done = scriptedEvent(steps[1]);
+    expect(done?.type === "done" ? done.completion : undefined).toBe("upstream");
+  });
+
+  test("a CRLF error frame yields the error and no done, like LF", async () => {
+    const steps = await collectScriptedSteps(
+      [
+        `${SCRIPTED_CHUNK}\r\n\r\n`,
+        'data: {"error":{"message":"crlf boom","code":"server_error"}}\r\n\r\n',
+      ],
+      "hang",
+    );
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "error"]);
+    const err = scriptedEvent(steps[1]);
+    expect(err?.type === "error" ? err.error.message : undefined).toBe("crlf boom");
+  });
+
+  test("the EOF residual splits on a lone CR line end", async () => {
+    const steps = await collectScriptedSteps([`${SCRIPTED_CHUNK}\rdata: [DONE]`], "eof");
+    expect(steps.map(scriptedStepType)).toEqual(["chunk", "done"]);
+    const done = scriptedEvent(steps[1]);
+    expect(done?.type === "done" ? done.completion : undefined).toBe("upstream");
+  });
+});

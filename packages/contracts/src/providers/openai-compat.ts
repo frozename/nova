@@ -130,6 +130,18 @@ function trimTrailingSlash(url: string): string {
 }
 
 /**
+ * SSE ends an event at a blank line, and the spec allows CRLF, LF or a
+ * lone CR as the line end, so a frame boundary is any of the three
+ * doubled forms. A separator split across two reads only matches once
+ * the next read completes it. No `g` flag: `exec` must always search
+ * from the start of the buffer.
+ */
+const SSE_FRAME_SEPARATOR = /\r\n\r\n|\n\n|\r\r/;
+
+/** Any single SSE line end: CRLF, LF or a lone CR. */
+const SSE_LINE_BREAK = /\r?\n|\r/;
+
+/**
  * Merge the caller's signal with a deadline-derived timeout. An
  * already-past deadline yields a pre-aborted signal so fetch rejects
  * before the request leaves.
@@ -672,12 +684,13 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
           // a split multi-byte sequence isn't dropped; the residual
           // buffer is then processed line-wise below.
           buffer += read.done ? decoder.decode() : decoder.decode(read.value, { stream: true });
-          // OpenAI SSE frames are separated by blank lines; each frame
-          // is a `data: {...}` line (plus `event:` in some dialects).
-          let nl: number;
-          while ((nl = buffer.indexOf("\n\n")) !== -1) {
-            const frame = buffer.slice(0, nl);
-            buffer = buffer.slice(nl + 2);
+          // SSE frames are separated by blank lines (CRLF, LF or CR line
+          // ends); each frame is a `data: {...}` line (plus `event:` in
+          // some dialects).
+          let separator: RegExpExecArray | null;
+          while ((separator = SSE_FRAME_SEPARATOR.exec(buffer)) !== null) {
+            const frame = buffer.slice(0, separator.index);
+            buffer = buffer.slice(separator.index + separator[0].length);
             const outcome = handleFrame(frame);
             throwIfCallerAborted();
             for (const ev of outcome.events) {
@@ -697,7 +710,7 @@ export function createOpenAICompatProvider(opts: OpenAICompatOptions): AiProvide
             // (e.g. a trailing `data: [DONE]`).
             const residual = buffer;
             buffer = "";
-            for (const line of residual.split("\n")) {
+            for (const line of residual.split(SSE_LINE_BREAK)) {
               const outcome = handleFrame(line);
               throwIfCallerAborted();
               for (const ev of outcome.events) {
