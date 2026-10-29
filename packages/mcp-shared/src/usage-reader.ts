@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { defaultUsageDir } from "./usage.js";
+import { defaultUsageDir, usageProviderSlug } from "./usage.js";
 
 /**
  * Batch reader for the JSONL usage sink written by `appendUsage()`.
@@ -26,8 +26,10 @@ export interface UsageReadOptions {
   since?: string;
   /** Exclusive upper bound on record ts (ISO). */
   until?: string;
-  /** Restrict to a single provider — skip files whose filename
-   *  prefix doesn't match. Speeds up large usage directories. */
+  /** Restrict to a single provider: only files named with
+   *  `usageProviderSlug(provider)` are read (speeds up large usage
+   *  directories), and records whose own string `provider` field
+   *  differs are dropped, since distinct providers can share a slug. */
   provider?: string;
 }
 
@@ -72,7 +74,7 @@ function shouldReadFile(
   if (!name.endsWith(".jsonl")) return null;
   const parsed = parseFilename(name);
   if (!parsed) return null;
-  if (opts.provider && parsed.provider !== opts.provider) return null;
+  if (opts.provider && parsed.provider !== usageProviderSlug(opts.provider)) return null;
   // Skip files whose date is strictly before `since`'s day or
   // strictly after `until`'s day. Cheap pre-filter — saves reading
   // entire files that can't contain matching records.
@@ -92,8 +94,23 @@ function inWindow(rec: Record<string, unknown>, window: TimeWindow): boolean {
   return ms >= window.sinceMs && ms < window.untilMs;
 }
 
+/**
+ * False only when a provider filter is set and the record's own string
+ * `provider` differs from it. Records without a string `provider` are kept.
+ */
+function matchesProvider(rec: Record<string, unknown>, provider: string | undefined): boolean {
+  if (!provider) return true;
+  const own = rec["provider"];
+  return typeof own !== "string" || own === provider;
+}
+
 /** Parse one file's body line-by-line into `result`, counting torn writes. */
-function collectFromBody(body: string, window: TimeWindow, result: UsageReadResult): void {
+function collectFromBody(
+  body: string,
+  window: TimeWindow,
+  provider: string | undefined,
+  result: UsageReadResult,
+): void {
   for (const line of body.split("\n")) {
     if (!line) continue;
     let parsed: unknown;
@@ -110,7 +127,7 @@ function collectFromBody(body: string, window: TimeWindow, result: UsageReadResu
       continue;
     }
     const rec = parsed as Record<string, unknown>;
-    if (inWindow(rec, window)) result.records.push(rec);
+    if (inWindow(rec, window) && matchesProvider(rec, provider)) result.records.push(rec);
   }
 }
 
@@ -130,7 +147,7 @@ export function readUsage(opts: UsageReadOptions = {}): UsageReadResult {
     result.filesScanned.push(path);
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is join(internal usage dir, name) where name came from readdirSync of that dir; not attacker-controlled.
     const body = readFileSync(path, "utf8");
-    collectFromBody(body, window, result);
+    collectFromBody(body, window, opts.provider, result);
   }
   return result;
 }
