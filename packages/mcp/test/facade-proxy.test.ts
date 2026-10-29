@@ -1,3 +1,5 @@
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -106,6 +108,34 @@ async function mountSettled(upstream: McpServer, downstreams: Downstream[]): Pro
   } catch (err) {
     return { error: String(err), result: null };
   }
+}
+
+interface ToolPage {
+  nextCursor?: string;
+  tools: Tool[];
+}
+
+function pagedTool(name: string): Tool {
+  return { name, description: `paged ${name}`, inputSchema: { type: "object" } };
+}
+
+// Replaces d.client.listTools with a stub that answers each tools/list request
+// with serve(cursor), where cursor is params.cursor, or "" when the request has
+// none. An Error answer becomes a rejection. Every cursor asked for is pushed
+// onto seenCursors, in order.
+function stubToolPages(
+  d: Downstream,
+  serve: (cursor: string) => Error | ToolPage,
+  seenCursors: string[],
+): void {
+  (d.client as unknown as { listTools: unknown }).listTools = (params?: {
+    cursor?: string;
+  }): Promise<ToolPage> => {
+    const cursor = params?.cursor ?? "";
+    seenCursors.push(cursor);
+    const answer = serve(cursor);
+    return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
+  };
 }
 
 // stderr spy ------------------------------------------------------------
@@ -305,6 +335,157 @@ describe("facade/proxy mountProxyTools", () => {
       await close();
       await a.close();
       await b.close();
+    }
+  });
+});
+
+describe("facade/proxy mountProxyTools: paginated tools/list", () => {
+  test("paginated tools/list: tools on every page are mounted", async () => {
+    const d = await makeDownstream("paged", [
+      { name: "paged.one", response: "r1" },
+      { name: "paged.two", response: "r2" },
+    ]);
+    const seenCursors: string[] = [];
+    stubToolPages(
+      d,
+      (cursor: string): ToolPage =>
+        cursor === ""
+          ? { tools: [pagedTool("paged.one")], nextCursor: "p2" }
+          : { tools: [pagedTool("paged.two")] },
+      seenCursors,
+    );
+
+    const upstream = new McpServer({ name: "up", version: "0.0.0" });
+    const { error, result } = await mountSettled(upstream, [d]);
+
+    expect(error).toBeNull();
+    expect(result?.mounted).toBe(2);
+    expect(result?.skipped).toEqual([]);
+    expect(seenCursors).toEqual(["", "p2"]);
+
+    const { client, close } = await connectedUpstream(upstream);
+    try {
+      const list = await client.listTools();
+      expect(list.tools.map((t) => t.name).sort()).toEqual(["paged.one", "paged.two"]);
+      const res = await client.callTool({ name: "paged.two", arguments: {} });
+      expect(textOf(res)).toBe("r2");
+    } finally {
+      await close();
+      await d.close();
+    }
+  });
+
+  test("a repeated cursor stops the walk and keeps the tools collected so far", async () => {
+    const d = await makeDownstream("loopy", [
+      { name: "loopy.one", response: "l1" },
+      { name: "loopy.two", response: "l2" },
+    ]);
+    const seenCursors: string[] = [];
+    stubToolPages(
+      d,
+      (cursor: string): ToolPage => ({
+        tools: [pagedTool(cursor === "" ? "loopy.one" : "loopy.two")],
+        nextCursor: "loop",
+      }),
+      seenCursors,
+    );
+
+    const upstream = new McpServer({ name: "up", version: "0.0.0" });
+    const { error, result } = await mountSettled(upstream, [d]);
+
+    try {
+      expect(error).toBeNull();
+      expect(result?.mounted).toBe(2);
+      expect(result?.skipped).toEqual([]);
+      expect(seenCursors).toEqual(["", "loop"]);
+      expect(
+        stderrWrites.some((line) => line.includes('"loopy"') && line.includes("repeated cursor")),
+      ).toBe(true);
+    } finally {
+      await d.close();
+    }
+  });
+
+  test("the page cap stops a cursor that never repeats", async () => {
+    const d = await makeDownstream("capped", [{ name: "capped.one", response: "c1" }]);
+    const seenCursors: string[] = [];
+    stubToolPages(
+      d,
+      (cursor: string): ToolPage =>
+        cursor === ""
+          ? { tools: [pagedTool("capped.one")], nextCursor: "c1" }
+          : { tools: [], nextCursor: `${cursor}+` },
+      seenCursors,
+    );
+
+    const upstream = new McpServer({ name: "up", version: "0.0.0" });
+    const { error, result } = await mountSettled(upstream, [d]);
+
+    try {
+      expect(error).toBeNull();
+      expect(result?.mounted).toBe(1);
+      // 100 is MAX_TOOL_LIST_PAGES in src/facade/proxy.ts.
+      expect(seenCursors).toHaveLength(100);
+      expect(result?.skipped).toEqual([]);
+      expect(
+        stderrWrites.some(
+          (line) => line.includes('"capped"') && line.includes("exceeded 100 pages"),
+        ),
+      ).toBe(true);
+    } finally {
+      await d.close();
+    }
+  });
+
+  test("an empty nextCursor ends the walk after one request", async () => {
+    const d = await makeDownstream("flat", [{ name: "flat.one", response: "f1" }]);
+    const seenCursors: string[] = [];
+    stubToolPages(
+      d,
+      (): ToolPage => ({ tools: [pagedTool("flat.one")], nextCursor: "" }),
+      seenCursors,
+    );
+
+    const upstream = new McpServer({ name: "up", version: "0.0.0" });
+    const { error, result } = await mountSettled(upstream, [d]);
+
+    try {
+      expect(error).toBeNull();
+      expect(result?.mounted).toBe(1);
+      expect(seenCursors).toEqual([""]);
+      expect(stderrWrites.some((line) => line.includes("tools/list for"))).toBe(false);
+    } finally {
+      await d.close();
+    }
+  });
+
+  test("a rejection on a later page skips that downstream as list-failed", async () => {
+    const d = await makeDownstream("pagefail", [{ name: "pagefail.one", response: "unused" }]);
+    const seenCursors: string[] = [];
+    stubToolPages(
+      d,
+      (cursor: string): Error | ToolPage =>
+        cursor === ""
+          ? { tools: [pagedTool("pagefail.one")], nextCursor: "p2" }
+          : new Error("page boom"),
+      seenCursors,
+    );
+
+    const upstream = new McpServer({ name: "up", version: "0.0.0" });
+    const { error, result } = await mountSettled(upstream, [d]);
+
+    try {
+      expect(error).toBeNull();
+      expect(result?.mounted).toBe(0);
+      expect(result?.skipped).toEqual([{ name: "*", from: "pagefail", reason: "list-failed" }]);
+      expect(seenCursors).toEqual(["", "p2"]);
+      expect(
+        stderrWrites.some(
+          (line) => line.includes('listTools failed for "pagefail"') && line.includes("page boom"),
+        ),
+      ).toBe(true);
+    } finally {
+      await d.close();
     }
   });
 });
