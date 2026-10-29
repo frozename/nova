@@ -158,6 +158,9 @@ class AcpWarmPoolImpl implements AcpWarmPool {
     if (this.closed) {
       return rejectDeposit(depositEntry, opts);
     }
+    // A stopped or over-age deposit is refused before capacity eviction runs,
+    // so it can never cost a live entry its slot.
+    if (!this.isDepositUsable(depositEntry)) return rejectDeposit(depositEntry, opts);
     // Free slots held by entries that already stopped, so capacity eviction
     // only ever chooses among live entries.
     this.pruneStopped();
@@ -219,23 +222,13 @@ class AcpWarmPoolImpl implements AcpWarmPool {
   }
 
   private isRunning(entry: AcpWarmPoolEntry): boolean {
-    const handle = entry.handle as StdioAcpHandle & {
-      exitCode?: number | null;
-      signalCode?: NodeJS.Signals | null;
-    };
-    const stdout = handle.stdout as StdioAcpHandle["stdout"] & { closed?: boolean };
-    const transportOpen = entry.client.isTransportOpen;
-    return (
-      entry.tornDown !== true &&
-      (handle.exitCode === null || handle.exitCode === undefined) &&
-      (handle.signalCode === null || handle.signalCode === undefined) &&
-      handle.stdin.writable &&
-      Boolean(stdout) &&
-      stdout.readable &&
-      !stdout.destroyed &&
-      !stdout.closed &&
-      (typeof transportOpen !== "function" || transportOpen.call(entry.client))
-    );
+    return entry.tornDown !== true && isHandleRunning(entry.handle, entry.client);
+  }
+
+  private isDepositUsable(depositEntry: AcpWarmPoolDeposit): boolean {
+    if (!isHandleRunning(depositEntry.handle, depositEntry.client)) return false;
+    const firstSeenAt = this.firstSeen.get(depositEntry.handle);
+    return firstSeenAt === undefined || this.now() - firstSeenAt <= this.maxAgeMs;
   }
 
   private removeEntry(key: string, entry: AcpWarmPoolEntry): void {
@@ -343,6 +336,25 @@ class AcpWarmPoolImpl implements AcpWarmPool {
     }
     if (idleExpired || aged) this.teardownEntry(key, entry);
   }
+}
+
+function isHandleRunning(handle: StdioAcpHandle, client: AcpPoolClient): boolean {
+  const proc = handle as StdioAcpHandle & {
+    exitCode?: number | null;
+    signalCode?: NodeJS.Signals | null;
+  };
+  const stdout = handle.stdout as StdioAcpHandle["stdout"] & { closed?: boolean };
+  const transportOpen = client.isTransportOpen;
+  return (
+    (proc.exitCode === null || proc.exitCode === undefined) &&
+    (proc.signalCode === null || proc.signalCode === undefined) &&
+    handle.stdin.writable &&
+    Boolean(stdout) &&
+    stdout.readable &&
+    !stdout.destroyed &&
+    !stdout.closed &&
+    (typeof transportOpen !== "function" || transportOpen.call(client))
+  );
 }
 
 function rejectDeposit(entry: AcpWarmPoolDeposit, opts: AcpWarmPoolDepositOptions = {}): null {
