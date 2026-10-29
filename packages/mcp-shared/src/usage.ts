@@ -38,12 +38,21 @@ export function defaultUsageDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(base, "usage");
 }
 
+/**
+ * File-name slug for a provider: every character outside
+ * `[a-zA-Z0-9._-]` becomes `_`, so the slug never contains a path
+ * separator. `readUsage` applies the same slug to its `provider` filter.
+ */
+export function usageProviderSlug(provider: string): string {
+  return provider.replaceAll(/[^a-z0-9._-]/gi, "_");
+}
+
 function usageFilePath(dir: string, provider: string, now: Date): string {
   const y = String(now.getUTCFullYear());
   const m = String(now.getUTCMonth() + 1).padStart(2, "0");
   const d = String(now.getUTCDate()).padStart(2, "0");
   // Sanitize: provider slug must not contain path separators.
-  const slug = provider.replaceAll(/[^a-z0-9._-]/gi, "_");
+  const slug = usageProviderSlug(provider);
   return join(dir, `${slug}-${y}-${m}-${d}.jsonl`);
 }
 

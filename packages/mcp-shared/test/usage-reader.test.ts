@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { readUsage } from "../src/usage-reader.js";
+import { appendUsage } from "../src/usage.js";
 
 let dir = "";
 
@@ -105,5 +106,40 @@ describe("readUsage", () => {
     write("openai-2026-04-17.jsonl", [{ provider: "openai", model: "m" }]);
     const res = readUsage({ dir });
     expect(res.filesScanned).toHaveLength(1);
+  });
+});
+
+describe("readUsage provider filter with sanitized provider names (#36)", () => {
+  const fixedNow = (): Date => new Date("2026-04-17T10:00:00Z");
+
+  test("a provider that appendUsage had to sanitize round-trips through the filter", () => {
+    appendUsage({
+      dir,
+      now: fixedNow,
+      record: { provider: "openrouter:free", model: "m", total_tokens: 1 },
+    });
+    const res = readUsage({ dir, provider: "openrouter:free" });
+    expect(res.filesScanned).toEqual([join(dir, "openrouter_free-2026-04-17.jsonl")]);
+    expect(res.records.map((r) => r["provider"])).toEqual(["openrouter:free"]);
+  });
+
+  test("providers that share a slug do not leak into each other's filter", () => {
+    appendUsage({ dir, now: fixedNow, record: { provider: "a/b", model: "m", total_tokens: 1 } });
+    appendUsage({ dir, now: fixedNow, record: { provider: "a_b", model: "m", total_tokens: 2 } });
+    const underscore = readUsage({ dir, provider: "a_b" });
+    expect(underscore.records.map((r) => r["provider"])).toEqual(["a_b"]);
+    const slash = readUsage({ dir, provider: "a/b" });
+    expect(slash.records.map((r) => r["provider"])).toEqual(["a/b"]);
+  });
+
+  test("the record-level filter drops other providers and keeps provider-less records", () => {
+    write("openai-2026-04-17.jsonl", [
+      { provider: "openai", total_tokens: 1 },
+      { total_tokens: 2 },
+      { provider: 7, total_tokens: 3 },
+      { provider: "anthropic", total_tokens: 4 },
+    ]);
+    const res = readUsage({ dir, provider: "openai" });
+    expect(res.records.map((r) => r["total_tokens"])).toEqual([1, 2, 3]);
   });
 });
