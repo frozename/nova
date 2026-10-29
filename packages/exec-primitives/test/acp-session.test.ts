@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import * as lib from "../src/index.ts";
 import {
@@ -30,6 +30,24 @@ function baseOpts(fake: FakeAcp): BootstrapOpts {
 function withoutField(opts: BootstrapOpts, field: keyof BootstrapOpts): BootstrapOpts {
   const entries = Object.entries(opts).filter(([key]) => key !== field);
   return Object.fromEntries(entries) as BootstrapOpts;
+}
+
+function stubOpts(client: lib.AcpSessionClient): BootstrapOpts {
+  return {
+    client,
+    clientInfo: CLIENT_INFO,
+    clientCapabilities: {},
+    protocolVersion: 1,
+    cwd: "/tmp/b6-stub",
+    bootDeadlineMs: 5_000,
+    signal: new AbortController().signal,
+    selectAuthMethod: () => "env",
+  };
+}
+
+// A request that never answers, so a request sent by mistake cannot reject later.
+function neverSettle(): void {
+  // Intentionally never resolves or rejects.
 }
 
 describe("[B6] session bootstrap", () => {
@@ -150,6 +168,83 @@ describe("[B6] session bootstrap", () => {
       expect((err as Error).message).toMatch(/deadline/i);
     } finally {
       await stopFakeAcp(fake);
+    }
+  });
+
+  test("[B6] an already-aborted signal rejects before initialize is written", async () => {
+    const fake = await startFakeAcp("b6-preabort");
+    try {
+      const controller = new AbortController();
+      controller.abort();
+      const err = await catchRejection(
+        lib.initializeAcpSession({ ...baseOpts(fake), signal: controller.signal }),
+      );
+      expect((err as Error).message).toBe("acp-session: bootstrap aborted");
+
+      const session = await lib.initializeAcpSession(baseOpts(fake));
+      expect(session.sessionId).toBe("fake-session-1");
+      expect(requestsTo(fake.logPath, "initialize")).toHaveLength(1);
+    } finally {
+      await stopFakeAcp(fake);
+    }
+  });
+
+  test("[B6] a deadline that passes during initialize rejects without sending session/new", async () => {
+    const startedAt = Date.now();
+    let offsetMs = 0;
+    const nowSpy = spyOn(Date, "now").mockImplementation((): number => startedAt + offsetMs);
+    const calls: string[] = [];
+    const client: lib.AcpSessionClient = {
+      request: (method: string): Promise<unknown> => {
+        calls.push(method);
+        if (method === "initialize") {
+          return Promise.resolve().then((): unknown => {
+            offsetMs = 10_000;
+            return { authMethods: [] };
+          });
+        }
+        return new Promise<unknown>(neverSettle);
+      },
+    };
+    try {
+      const err = await catchRejection(lib.initializeAcpSession(stubOpts(client)));
+      expect({ calls, message: (err as Error).message }).toEqual({
+        calls: ["initialize"],
+        message: "acp-session: boot deadline exceeded before session/new",
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  test("[B6] a deadline that passes during session/new rejects without sending authenticate", async () => {
+    const startedAt = Date.now();
+    let offsetMs = 0;
+    const nowSpy = spyOn(Date, "now").mockImplementation((): number => startedAt + offsetMs);
+    const calls: string[] = [];
+    const client: lib.AcpSessionClient = {
+      request: (method: string): Promise<unknown> => {
+        calls.push(method);
+        if (method === "initialize") {
+          return Promise.resolve({ authMethods: [{ id: "env", type: "env_var" }] });
+        }
+        if (method === "session/new") {
+          return Promise.resolve().then((): never => {
+            offsetMs = 10_000;
+            throw new lib.AcpResponseError("authentication required", -32000);
+          });
+        }
+        return new Promise<unknown>(neverSettle);
+      },
+    };
+    try {
+      const err = await catchRejection(lib.initializeAcpSession(stubOpts(client)));
+      expect({ calls, message: (err as Error).message }).toEqual({
+        calls: ["initialize", "session/new"],
+        message: "acp-session: boot deadline exceeded before authenticate",
+      });
+    } finally {
+      nowSpy.mockRestore();
     }
   });
 });
