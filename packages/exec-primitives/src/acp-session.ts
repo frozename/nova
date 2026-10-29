@@ -45,7 +45,7 @@ function abortError(): Error {
 }
 
 function raceDeadline<T>(
-  pending: Promise<T>,
+  start: () => Promise<T>,
   signal: AbortSignal,
   deadlineAt: number,
   method: string,
@@ -55,6 +55,8 @@ function raceDeadline<T>(
     return Promise.reject(new Error(`acp-session: boot deadline exceeded before ${method}`));
   }
   if (signal.aborted) return Promise.reject(abortError());
+  // Send the request only once both checks pass, so a dead bootstrap writes nothing.
+  const pending = start();
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -125,11 +127,12 @@ export async function initializeAcpSession(opts: InitializeAcpSessionOptions): P
   const deadlineAt = Date.now() + bootDeadlineMs;
 
   const initResult = (await raceDeadline(
-    client.request("initialize", {
-      protocolVersion,
-      clientCapabilities: opts.clientCapabilities,
-      clientInfo: opts.clientInfo,
-    }),
+    (): Promise<unknown> =>
+      client.request("initialize", {
+        protocolVersion,
+        clientCapabilities: opts.clientCapabilities,
+        clientInfo: opts.clientInfo,
+      }),
     signal,
     deadlineAt,
     "initialize",
@@ -142,7 +145,8 @@ export async function initializeAcpSession(opts: InitializeAcpSessionOptions): P
 
   const newSession = (): Promise<unknown> =>
     raceDeadline(
-      client.request("session/new", { cwd, mcpServers: opts.mcpServers ?? [] }),
+      (): Promise<unknown> =>
+        client.request("session/new", { cwd, mcpServers: opts.mcpServers ?? [] }),
       signal,
       deadlineAt,
       "session/new",
@@ -158,7 +162,7 @@ export async function initializeAcpSession(opts: InitializeAcpSessionOptions): P
       throw new Error("acp-session: authentication required and no auth method selected");
     }
     await raceDeadline(
-      client.request("authenticate", { methodId }),
+      (): Promise<unknown> => client.request("authenticate", { methodId }),
       signal,
       deadlineAt,
       "authenticate",
